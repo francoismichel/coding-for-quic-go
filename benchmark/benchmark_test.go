@@ -2,16 +2,19 @@ package benchmark
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
-	"io"
 	"math/rand"
 	"net"
+	"net/http"
+	"strconv"
+	"time"
 
-	quic "github.com/lucas-clemente/quic-go"
+	"github.com/lucas-clemente/quic-go/h2quic"
 	_ "github.com/lucas-clemente/quic-go/integrationtests/tools/testlog"
+	"github.com/lucas-clemente/quic-go/integrationtests/tools/testserver"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/testdata"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -23,64 +26,112 @@ func init() {
 		rand.Seed(GinkgoRandomSeed())
 		rand.Read(data) // no need to check for an error. math.Rand.Read never errors
 
-		for i := range protocol.SupportedVersions {
-			version := protocol.SupportedVersions[i]
+		BeforeEach(func() {
+			uploadStarted = make(chan struct{})
+			uploadFinished = make(chan struct{})
+		})
 
-			Context(fmt.Sprintf("with version %s", version), func() {
-				Measure(fmt.Sprintf("transferring a %d MB file", size), func(b Benchmarker) {
-					var ln quic.Listener
-					serverAddr := make(chan net.Addr)
-					handshakeChan := make(chan struct{})
-					// start the server
-					go func() {
-						defer GinkgoRecover()
-						var err error
-						ln, err = quic.ListenAddr(
-							"localhost:0",
-							testdata.GetTLSConfig(),
-							&quic.Config{Versions: []protocol.VersionNumber{version}},
-						)
-						Expect(err).ToNot(HaveOccurred())
-						serverAddr <- ln.Addr()
-						sess, err := ln.Accept()
-						Expect(err).ToNot(HaveOccurred())
-						// wait for the client to complete the handshake before sending the data
-						// this should not be necessary, but due to timing issues on the CIs, this is necessary to avoid sending too many undecryptable packets
-						<-handshakeChan
-						str, err := sess.OpenStream()
-						Expect(err).ToNot(HaveOccurred())
-						_, err = str.Write(data)
-						Expect(err).ToNot(HaveOccurred())
-						err = str.Close()
-						Expect(err).ToNot(HaveOccurred())
-					}()
+		for _, c := range conditions {
+			cond := c
+			Context(cond.Description, func() {
+				BeforeEach(func() {
+					if len(cond.Command) > 0 {
+						if !netemAvailable {
+							Skip("Skipping. netem not found.")
+						}
+						execNetem(cond.Command)
+					}
+				})
 
-					// start the client
-					addr := <-serverAddr
-					sess, err := quic.DialAddr(
-						addr.String(),
-						&tls.Config{InsecureSkipVerify: true},
-						&quic.Config{Versions: []protocol.VersionNumber{version}},
-					)
-					Expect(err).ToNot(HaveOccurred())
-					close(handshakeChan)
-					str, err := sess.AcceptStream()
-					Expect(err).ToNot(HaveOccurred())
+				AfterEach(func() {
+					// TODO: make sure this is always executed
+					if len(cond.Command) > 0 && netemAvailable {
+						execNetem("tc qdisc del dev lo root")
+					}
+				})
 
-					buf := &bytes.Buffer{}
-					// measure the time it takes to download the dataLen bytes
-					// note we're measuring the time for the transfer, i.e. excluding the handshake
-					runtime := b.Time("transfer time", func() {
-						_, err := io.Copy(buf, str)
+				Context(fmt.Sprintf("uploading a %d MB file", size), func() {
+					Measure(testChromeToTCP, func(b Benchmarker) {
+						tlsConf := testdata.GetTLSConfig()
+						tlsConf.NextProtos = []string{"h2"}
+						srv := &http.Server{
+							TLSConfig: tlsConf,
+						}
+						defer srv.Close()
+						addr, err := net.ResolveTCPAddr("tcp", "0.0.0.0:0")
 						Expect(err).NotTo(HaveOccurred())
-					})
-					Expect(buf.Bytes()).To(Equal(data))
+						conn, err := net.ListenTCP("tcp", addr)
+						Expect(err).NotTo(HaveOccurred())
+						fmt.Printf("%#v\n", conn.Addr())
 
-					b.RecordValue("transfer rate [MB/s]", float64(dataLen)/1e6/runtime.Seconds())
+						go func() {
+							defer GinkgoRecover()
+							srv.ServeTLS(conn, "", "")
+						}()
 
-					ln.Close()
-					sess.Close()
-				}, samples)
+						go func() {
+							defer GinkgoRecover()
+							chromeTest(
+								protocol.Version39,
+								fmt.Sprintf("https://quic.clemente.io:443/upload?num=1&len=%d", dataLen),
+								strconv.Itoa(conn.Addr().(*net.TCPAddr).Port),
+								false,
+							)
+						}()
+
+						<-uploadStarted
+						runtime := b.Time("transfer time", func() {
+							<-uploadFinished
+						})
+
+						b.RecordValue(transferRateLabel, float64(dataLen)/1e6/runtime.Seconds())
+						chromeSession.Kill()
+					}, samples)
+
+					Measure(testChromeToQuicGo, func(b Benchmarker) {
+						go func() {
+							defer GinkgoRecover()
+							chromeTest(
+								protocol.Version39,
+								fmt.Sprintf("https://quic.clemente.io:443/upload?num=1&len=%d", dataLen),
+								testserver.Port(),
+								true,
+							)
+						}()
+
+						<-uploadStarted
+						runtime := b.Time("transfer time", func() {
+							<-uploadFinished
+						})
+
+						b.RecordValue(transferRateLabel, float64(dataLen)/1e6/runtime.Seconds())
+						chromeSession.Kill()
+					}, samples)
+
+					Measure(testQuicGoToQuicGo, func(b Benchmarker) {
+						hclient := &http.Client{
+							Transport: &h2quic.RoundTripper{},
+						}
+						done := make(chan struct{})
+						go func() {
+							defer GinkgoRecover()
+							_, err := hclient.Post(
+								fmt.Sprintf("https://quic.clemente.io:%s/uploadhandler?len=%d", testserver.Port(), dataLen),
+								"multiplart/form-data",
+								bytes.NewReader(testserver.GeneratePRData(dataLen)),
+							)
+							Expect(err).ToNot(HaveOccurred())
+							close(done)
+						}()
+						<-uploadStarted
+						runtime := b.Time("transfer time", func() {
+							<-uploadFinished
+							time.Sleep(100 * time.Millisecond)
+						})
+						b.RecordValue(transferRateLabel, float64(dataLen)/1e6/runtime.Seconds())
+						<-done
+					}, samples)
+				})
 			})
 		}
 	})
