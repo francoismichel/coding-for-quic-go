@@ -120,6 +120,7 @@ var _ = Describe("Transport Parameters", func() {
 					initialMaxStreamIDBiDiParameterID: []byte{0x33, 0x44, 0x55, 0x66},
 					initialMaxStreamIDUniParameterID:  []byte{0x44, 0x55, 0x66, 0x77},
 					idleTimeoutParameterID:            []byte{0x13, 0x37},
+					ackDelayExponentParameterID:       []byte{17},
 				}
 			})
 			It("reads parameters", func() {
@@ -129,6 +130,7 @@ var _ = Describe("Transport Parameters", func() {
 				Expect(params.ConnectionFlowControlWindow).To(Equal(protocol.ByteCount(0x22334455)))
 				Expect(params.IdleTimeout).To(Equal(0x1337 * time.Second))
 				Expect(params.OmitConnectionID).To(BeFalse())
+				Expect(params.AckDelayExponent).To(Equal(uint8(17)))
 			})
 
 			It("saves if it should omit the connection ID", func() {
@@ -201,6 +203,18 @@ var _ = Describe("Transport Parameters", func() {
 				Expect(err).To(MatchError("wrong length for omit_connection_id: 1 (expected empty)"))
 			})
 
+			It("rejects the parameters if ack_delay_exponent has the wrong length", func() {
+				parameters[ackDelayExponentParameterID] = []byte{0x1, 0x2} // should be 1 byte
+				_, err := readTransportParamters(paramsMapToList(parameters))
+				Expect(err).To(MatchError("wrong length for ack_delay_exponent: 2 (expected 1)"))
+			})
+
+			It("rejects the parameters if ack_delay_exponent has an invalid value", func() {
+				parameters[ackDelayExponentParameterID] = []byte{21}
+				_, err := readTransportParamters(paramsMapToList(parameters))
+				Expect(err).To(MatchError("invalid value for ack_delay_exponent: 21 (must not be larger than 20)"))
+			})
+
 			It("ignores unknown parameters", func() {
 				parameters[1337] = []byte{42}
 				_, err := readTransportParamters(paramsMapToList(parameters))
@@ -224,17 +238,19 @@ var _ = Describe("Transport Parameters", func() {
 					StreamFlowControlWindow:     0xdeadbeef,
 					ConnectionFlowControlWindow: 0xdecafbad,
 					IdleTimeout:                 0xcafe * time.Second,
+					AckDelayExponent:            18,
 				}
 			})
 
 			It("creates the parameters list", func() {
 				values := paramsListToMap(params.getTransportParameters())
-				Expect(values).To(HaveLen(5))
+				Expect(values).To(HaveLen(6))
 				Expect(values).To(HaveKeyWithValue(initialMaxStreamDataParameterID, []byte{0xde, 0xad, 0xbe, 0xef}))
 				Expect(values).To(HaveKeyWithValue(initialMaxDataParameterID, []byte{0xde, 0xca, 0xfb, 0xad}))
 				Expect(values).To(HaveKeyWithValue(initialMaxStreamIDBiDiParameterID, []byte{0xff, 0xff, 0xff, 0xff}))
 				Expect(values).To(HaveKeyWithValue(idleTimeoutParameterID, []byte{0xca, 0xfe}))
 				Expect(values).To(HaveKeyWithValue(maxPacketSizeParameterID, []byte{0x5, 0xac})) // 1452 = 0x5ac
+				Expect(values).To(HaveKeyWithValue(ackDelayExponentParameterID, []byte{18}))
 				Expect(values).ToNot(HaveKey(initialMaxStreamIDUniParameterID))
 			})
 

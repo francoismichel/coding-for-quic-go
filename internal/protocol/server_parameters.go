@@ -122,3 +122,6 @@ const ClosedSessionDeleteTimeout = time.Minute
 
 // NumCachedCertificates is the number of cached compressed certificate chains, each taking ~1K space
 const NumCachedCertificates = 128
+
+// AckDelayExponent is the exponent used to decode the ACK Delay field in the ACK frame
+const AckDelayExponent = 3

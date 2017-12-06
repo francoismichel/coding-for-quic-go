@@ -25,6 +25,7 @@ type TransportParameters struct {
 
 	OmitConnectionID bool
 	IdleTimeout      time.Duration
+	AckDelayExponent uint8
 }
 
 // readHelloMap reads the transport parameters from the tags sent in a gQUIC handshake message
@@ -134,6 +135,15 @@ func readTransportParamters(paramsList []transportParameter) (*TransportParamete
 				return nil, fmt.Errorf("wrong length for omit_connection_id: %d (expected empty)", len(p.Value))
 			}
 			params.OmitConnectionID = true
+		case ackDelayExponentParameterID:
+			if len(p.Value) != 1 {
+				return nil, fmt.Errorf("wrong length for ack_delay_exponent: %d (expected 1)", len(p.Value))
+			}
+			ackDelayExponent := p.Value[0]
+			if ackDelayExponent > 20 {
+				return nil, fmt.Errorf("invalid value for ack_delay_exponent: %d (must not be larger than 20)", ackDelayExponent)
+			}
+			params.AckDelayExponent = ackDelayExponent
 		}
 	}
 
@@ -163,6 +173,7 @@ func (p *TransportParameters) getTransportParameters() []transportParameter {
 		{initialMaxStreamIDBiDiParameterID, initialMaxStreamIDBiDi},
 		{idleTimeoutParameterID, idleTimeout},
 		{maxPacketSizeParameterID, maxPacketSize},
+		{ackDelayExponentParameterID, []byte{p.AckDelayExponent}},
 	}
 	if p.OmitConnectionID {
 		params = append(params, transportParameter{omitConnectionIDParameterID, []byte{}})

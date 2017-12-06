@@ -16,6 +16,7 @@ const (
 	omitConnectionIDParameterID       transportParameterID = 0x4
 	maxPacketSizeParameterID          transportParameterID = 0x5
 	statelessResetTokenParameterID    transportParameterID = 0x6
+	ackDelayExponentParameterID       transportParameterID = 0x7
 	initialMaxStreamIDUniParameterID  transportParameterID = 0x8
 )
 
