@@ -125,7 +125,7 @@ func (h *cryptoSetupTLS) Open(dst, src []byte, packetNumber protocol.PacketNumbe
 	return data, protocol.EncryptionUnencrypted, nil
 }
 
-func (h *cryptoSetupTLS) GetSealer() (protocol.EncryptionLevel, Sealer) {
+func (h *cryptoSetupTLS) GetSealer() (protocol.EncryptionLevel, crypto.Sealer) {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
 
@@ -135,7 +135,7 @@ func (h *cryptoSetupTLS) GetSealer() (protocol.EncryptionLevel, Sealer) {
 	return protocol.EncryptionUnencrypted, h.nullAEAD
 }
 
-func (h *cryptoSetupTLS) GetSealerWithEncryptionLevel(encLevel protocol.EncryptionLevel) (Sealer, error) {
+func (h *cryptoSetupTLS) GetSealerWithEncryptionLevel(encLevel protocol.EncryptionLevel) (crypto.Sealer, error) {
 	errNoSealer := fmt.Errorf("CryptoSetup: no sealer with encryption level %s", encLevel.String())
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
@@ -153,7 +153,7 @@ func (h *cryptoSetupTLS) GetSealerWithEncryptionLevel(encLevel protocol.Encrypti
 	}
 }
 
-func (h *cryptoSetupTLS) GetSealerForCryptoStream() (protocol.EncryptionLevel, Sealer) {
+func (h *cryptoSetupTLS) GetSealerForCryptoStream() (protocol.EncryptionLevel, crypto.Sealer) {
 	return protocol.EncryptionUnencrypted, h.nullAEAD
 }
 

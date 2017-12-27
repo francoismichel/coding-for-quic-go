@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/lucas-clemente/quic-go/ackhandler"
+	"github.com/lucas-clemente/quic-go/internal/crypto"
 	"github.com/lucas-clemente/quic-go/internal/handshake"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/wire"
@@ -326,7 +327,7 @@ func (p *packetPacker) getHeader(encLevel protocol.EncryptionLevel) *wire.Header
 func (p *packetPacker) writeAndSealPacket(
 	header *wire.Header,
 	payloadFrames []wire.Frame,
-	sealer handshake.Sealer,
+	sealer crypto.Sealer,
 ) ([]byte, error) {
 	raw := getPacketBuffer()
 	buffer := bytes.NewBuffer(raw)

@@ -8,12 +8,6 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 )
 
-// Sealer seals a packet
-type Sealer interface {
-	Seal(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) []byte
-	Overhead() int
-}
-
 // A TLSExtensionHandler sends and received the QUIC TLS extension.
 // It provides the parameters sent by the peer on a channel.
 type TLSExtensionHandler interface {
@@ -42,7 +36,7 @@ type CryptoSetup interface {
 	DiversificationNonce() []byte   // only needed for cryptoSetupServer
 	SetDiversificationNonce([]byte) // only needed for cryptoSetupClient
 
-	GetSealer() (protocol.EncryptionLevel, Sealer)
-	GetSealerWithEncryptionLevel(protocol.EncryptionLevel) (Sealer, error)
-	GetSealerForCryptoStream() (protocol.EncryptionLevel, Sealer)
+	GetSealer() (protocol.EncryptionLevel, crypto.Sealer)
+	GetSealerWithEncryptionLevel(protocol.EncryptionLevel) (crypto.Sealer, error)
+	GetSealerForCryptoStream() (protocol.EncryptionLevel, crypto.Sealer)
 }
