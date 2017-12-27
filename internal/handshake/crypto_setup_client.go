@@ -48,7 +48,8 @@ type cryptoSetupClient struct {
 
 	receivedSecurePacket bool
 	nullAEAD             crypto.AEAD
-	secureAEAD           crypto.AEAD
+	secureAEADOpener     crypto.Opener
+	secureAEADSealer     crypto.Sealer
 	forwardSecureAEAD    crypto.AEAD
 
 	paramsChan     chan<- TransportParameters
@@ -122,7 +123,7 @@ func (h *cryptoSetupClient) HandleCryptoStream() error {
 		}
 
 		h.mutex.RLock()
-		sendCHLO := h.secureAEAD == nil
+		sendCHLO := h.secureAEADOpener == nil
 		h.mutex.RUnlock()
 
 		if sendCHLO {
@@ -319,8 +320,8 @@ func (h *cryptoSetupClient) Open(dst, src []byte, packetNumber protocol.PacketNu
 		return nil, protocol.EncryptionUnspecified, err
 	}
 
-	if h.secureAEAD != nil {
-		data, err := h.secureAEAD.Open(dst, src, packetNumber, associatedData)
+	if h.secureAEADOpener != nil {
+		data, err := h.secureAEADOpener.Open(dst, src, packetNumber, associatedData)
 		if err == nil {
 			h.receivedSecurePacket = true
 			return data, protocol.EncryptionSecure, nil
@@ -341,8 +342,8 @@ func (h *cryptoSetupClient) GetSealer() (protocol.EncryptionLevel, crypto.Sealer
 	defer h.mutex.RUnlock()
 	if h.forwardSecureAEAD != nil {
 		return protocol.EncryptionForwardSecure, h.forwardSecureAEAD
-	} else if h.secureAEAD != nil {
-		return protocol.EncryptionSecure, h.secureAEAD
+	} else if h.secureAEADSealer != nil {
+		return protocol.EncryptionSecure, h.secureAEADSealer
 	} else {
 		return protocol.EncryptionUnencrypted, h.nullAEAD
 	}
@@ -360,10 +361,10 @@ func (h *cryptoSetupClient) GetSealerWithEncryptionLevel(encLevel protocol.Encry
 	case protocol.EncryptionUnencrypted:
 		return h.nullAEAD, nil
 	case protocol.EncryptionSecure:
-		if h.secureAEAD == nil {
+		if h.secureAEADSealer == nil {
 			return nil, errors.New("CryptoSetupClient: no secureAEAD")
 		}
-		return h.secureAEAD, nil
+		return h.secureAEADSealer, nil
 	case protocol.EncryptionForwardSecure:
 		if h.forwardSecureAEAD == nil {
 			return nil, errors.New("CryptoSetupClient: no forwardSecureAEAD")
@@ -473,7 +474,7 @@ func (h *cryptoSetupClient) maybeUpgradeCrypto() error {
 	defer h.mutex.Unlock()
 
 	leafCert := h.certManager.GetLeafCert()
-	if h.secureAEAD == nil && (h.serverConfig != nil && len(h.serverConfig.sharedSecret) > 0 && len(h.nonc) > 0 && len(leafCert) > 0 && len(h.diversificationNonce) > 0 && len(h.lastSentCHLO) > 0) {
+	if h.serverConfig != nil && len(h.serverConfig.sharedSecret) > 0 && len(h.nonc) > 0 && len(leafCert) > 0 && len(h.lastSentCHLO) > 0 {
 		var err error
 		var nonce []byte
 		if h.sno == nil {
@@ -481,22 +482,41 @@ func (h *cryptoSetupClient) maybeUpgradeCrypto() error {
 		} else {
 			nonce = append(h.nonc, h.sno...)
 		}
-
-		h.secureAEAD, err = h.keyDerivation(
-			false,
-			h.serverConfig.sharedSecret,
-			nonce,
-			h.connID,
-			h.lastSentCHLO,
-			h.serverConfig.Get(),
-			leafCert,
-			h.diversificationNonce,
-			protocol.PerspectiveClient,
-		)
-		if err != nil {
-			return err
+		if h.secureAEADSealer == nil {
+			utils.Debugf("creating secure AEAD sealer")
+			h.secureAEADSealer, err = h.keyDerivation(
+				false,
+				h.serverConfig.sharedSecret,
+				nonce,
+				h.connID,
+				h.lastSentCHLO,
+				h.serverConfig.Get(),
+				leafCert,
+				nil,
+				protocol.PerspectiveClient,
+			)
+			if err != nil {
+				return err
+			}
 		}
-		h.handshakeEvent <- struct{}{}
+		if h.secureAEADOpener == nil && len(h.diversificationNonce) > 0 {
+			utils.Debugf("creating secure AEAD opener")
+			h.secureAEADOpener, err = h.keyDerivation(
+				false,
+				h.serverConfig.sharedSecret,
+				nonce,
+				h.connID,
+				h.lastSentCHLO,
+				h.serverConfig.Get(),
+				leafCert,
+				h.diversificationNonce,
+				protocol.PerspectiveClient,
+			)
+			if err != nil {
+				return err
+			}
+			h.handshakeEvent <- struct{}{}
+		}
 	}
 	return nil
 }
