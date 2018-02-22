@@ -17,4 +17,9 @@ if [ ${TESTMODE} == "integration" ]; then
   fi
   # run integration tests
   ginkgo -r -v -randomizeAllSpecs -randomizeSuites -trace integrationtests
+  # run integration tests with the Go race detector
+  # The Go race detector only works on amd64.
+  if [ ${TRAVIS_GOARCH} == 'amd64' ]; then
+    ginkgo -r -race -randomizeAllSpecs -randomizeSuites -trace -skipPackage chrome integrationtests
+  fi
 fi
