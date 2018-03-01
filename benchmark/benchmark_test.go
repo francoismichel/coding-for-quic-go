@@ -83,6 +83,41 @@ func init() {
 						b.RecordValue(transferRateLabel, float64(dataLen)/1e6/runtime.Seconds())
 					}, samples)
 
+					Measure(testTCPtoTCPUpload, func(b Benchmarker) {
+						tlsConf := testdata.GetTLSConfig()
+						tlsConf.NextProtos = []string{"h2"}
+						srv := &http.Server{
+							TLSConfig: tlsConf,
+						}
+						defer srv.Close()
+						addr, err := net.ResolveTCPAddr("tcp", "0.0.0.0:0")
+						Expect(err).NotTo(HaveOccurred())
+						conn, err := net.ListenTCP("tcp", addr)
+						Expect(err).NotTo(HaveOccurred())
+						go func() {
+							defer GinkgoRecover()
+							srv.ServeTLS(conn, "", "")
+						}()
+
+						done := make(chan struct{})
+						go func() {
+							defer GinkgoRecover()
+							_, err := http.Post(
+								fmt.Sprintf("https://quic.clemente.io:%d/uploadhandler?len=%d", conn.Addr().(*net.TCPAddr).Port, dataLen),
+								"multiplart/form-data",
+								bytes.NewReader(testserver.GeneratePRData(dataLen)),
+							)
+							Expect(err).ToNot(HaveOccurred())
+							close(done)
+						}()
+						<-uploadStarted
+						runtime := b.Time("transfer time", func() {
+							<-uploadFinished
+						})
+						b.RecordValue(transferRateLabel, float64(dataLen)/1e6/runtime.Seconds())
+						Eventually(done).Should(BeClosed())
+					}, samples)
+
 					Measure(testChromeToTCP, func(b Benchmarker) {
 						tlsConf := testdata.GetTLSConfig()
 						tlsConf.NextProtos = []string{"h2"}
