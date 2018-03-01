@@ -6,17 +6,20 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"os/exec"
 	"strconv"
 	"time"
 
 	"github.com/lucas-clemente/quic-go/h2quic"
 	_ "github.com/lucas-clemente/quic-go/integrationtests/tools/testlog"
 	"github.com/lucas-clemente/quic-go/integrationtests/tools/testserver"
+	"github.com/lucas-clemente/quic-go/integrationtests/tools/toyserver"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/testdata"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gexec"
 )
 
 func init() {
@@ -106,6 +109,37 @@ func init() {
 
 						b.RecordValue(transferRateLabel, float64(dataLen)/1e6/runtime.Seconds())
 						chromeSession.Kill()
+					}, samples)
+
+					Measure(testToyServerToClient, func(b Benchmarker) {
+						toyserver.New()
+						toyserver.CreateDownloadFile("file.dat", data)
+						toyserver.Start(protocol.Version39)
+						defer toyserver.Stop()
+						time.Sleep(500 * time.Millisecond) // give the server some time to start
+
+						command := exec.Command(
+							clientPath,
+							"--quic-version="+protocol.Version39.ToAltSvc(),
+							"--host=127.0.0.1",
+							fmt.Sprintf("--port=%d", toyserver.Port()),
+							"--disable-certificate-verification",
+							"--quiet",
+							fmt.Sprintf("https://quic.clemente.io:%d/file.dat", toyserver.Port()),
+						)
+
+						session, err := Start(command, nil, GinkgoWriter)
+						Expect(err).NotTo(HaveOccurred())
+						defer session.Kill()
+						defer session.Out.CancelDetects()
+						downloadStarted := session.Out.Detect("Connected to 127.0.0.1")
+						downloadFinished := session.Out.Detect("Request succeeded")
+						Eventually(downloadStarted, time.Second, 10*time.Microsecond).Should(Receive(BeTrue()))
+						runtime := b.Time("transfer time", func() {
+							Eventually(downloadFinished, 60*time.Second, 100*time.Microsecond).Should(Receive(BeTrue()))
+						})
+						Eventually(session).Should(Exit(0))
+						b.RecordValue(transferRateLabel, float64(dataLen)/1e6/runtime.Seconds())
 					}, samples)
 
 					Measure(testQuicGoToQuicGo, func(b Benchmarker) {

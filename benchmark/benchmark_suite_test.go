@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -31,6 +32,7 @@ var (
 	size           int // file size in MB, will be read from flags
 	samples        int // number of samples for Measure, will be read from flags
 	netemAvailable bool
+	clientPath     string
 
 	reporter       *myReporter
 	chromeSession  *gexec.Session
@@ -67,6 +69,12 @@ func init() {
 	flag.IntVar(&size, "size", 40, "data length (in MB)")
 	flag.IntVar(&samples, "samples", 1, "number of samples")
 	flag.Parse()
+
+	_, thisfile, _, ok := runtime.Caller(0)
+	if !ok {
+		panic("Failed to get current path")
+	}
+	clientPath = filepath.Join(thisfile, fmt.Sprintf("../../../quic-clients/client-%s-debug", runtime.GOOS))
 
 	_, err := exec.LookPath("tc")
 	netemAvailable = err == nil
