@@ -16,6 +16,7 @@ const (
 	testChromeToQuicGo    = "Chrome => quic-go server"
 	testQuicGoToQuicGo    = "quic-go client => server"
 	testToyServerToClient = "quic_server => quic_client"
+	testTCPtoTCP          = "Go TCP server => TCP client"
 )
 
 type measurementSeries map[string]*types.SpecMeasurement
@@ -59,7 +60,7 @@ func (r *myReporter) addResult(cond, ver string, measurement *types.SpecMeasurem
 
 func (r *myReporter) printResult() {
 	table := tablewriter.NewWriter(os.Stdout)
-	header := []string{"", testChromeToTCP, testChromeToQuicGo, testToyServerToClient, testQuicGoToQuicGo}
+	header := []string{"", testTCPtoTCP, testChromeToTCP, testChromeToQuicGo, testToyServerToClient, testQuicGoToQuicGo}
 	table.SetHeader(header)
 	table.SetCaption(true, fmt.Sprintf("Based on %d samples of %d MB.\nAll values in MB/s.", samples, size))
 	table.SetAutoFormatHeaders(false)

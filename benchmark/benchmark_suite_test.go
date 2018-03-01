@@ -103,6 +103,14 @@ func init() {
 		close(uploadFinished)
 		Expect(bytes.Equal(actual, testserver.GeneratePRData(l))).To(BeTrue())
 	})
+
+	http.HandleFunc("/data", func(w http.ResponseWriter, r *http.Request) {
+		defer GinkgoRecover()
+		l, err := strconv.Atoi(r.URL.Query().Get("len"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = w.Write(testserver.GeneratePRData(l))
+		Expect(err).NotTo(HaveOccurred())
+	})
 }
 
 func clearNetem() {

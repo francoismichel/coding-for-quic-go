@@ -3,6 +3,7 @@ package benchmark
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"math/rand"
 	"net"
 	"net/http"
@@ -54,6 +55,34 @@ func init() {
 				})
 
 				Context(fmt.Sprintf("uploading a %d MB file", size), func() {
+					Measure(testTCPtoTCP, func(b Benchmarker) {
+						tlsConf := testdata.GetTLSConfig()
+						tlsConf.NextProtos = []string{"h2"}
+						srv := &http.Server{
+							TLSConfig: tlsConf,
+						}
+						defer srv.Close()
+						addr, err := net.ResolveTCPAddr("tcp", "0.0.0.0:0")
+						Expect(err).NotTo(HaveOccurred())
+						conn, err := net.ListenTCP("tcp", addr)
+						Expect(err).NotTo(HaveOccurred())
+						go func() {
+							defer GinkgoRecover()
+							srv.ServeTLS(conn, "", "")
+						}()
+
+						rsp, err := http.Get(fmt.Sprintf("https://quic.clemente.io:%d/data?len=%d", conn.Addr().(*net.TCPAddr).Port, dataLen))
+						Expect(err).ToNot(HaveOccurred())
+						var rcvdData []byte
+						runtime := b.Time("transfer time", func() {
+							var err error
+							rcvdData, err = ioutil.ReadAll(rsp.Body)
+							Expect(err).ToNot(HaveOccurred())
+						})
+						Expect(rcvdData).To(Equal(testserver.GeneratePRData(dataLen)))
+						b.RecordValue(transferRateLabel, float64(dataLen)/1e6/runtime.Seconds())
+					}, samples)
+
 					Measure(testChromeToTCP, func(b Benchmarker) {
 						tlsConf := testdata.GetTLSConfig()
 						tlsConf.NextProtos = []string{"h2"}
