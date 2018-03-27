@@ -118,9 +118,8 @@ type session struct {
 	handshakeChan     chan error
 	handshakeComplete bool
 
-	receivedFirstPacket              bool // since packet numbers start at 0, we can't use largestRcvdPacketNumber != 0 for this
-	receivedFirstForwardSecurePacket bool
-	lastRcvdPacketNumber             protocol.PacketNumber
+	receivedFirstPacket  bool // since packet numbers start at 0, we can't use largestRcvdPacketNumber != 0 for this
+	lastRcvdPacketNumber protocol.PacketNumber
 	// Used to calculate the next packet number from the truncated wire
 	// representation, and sent back in public reset packets
 	largestRcvdPacketNumber protocol.PacketNumber
@@ -462,15 +461,21 @@ runLoop:
 		case p := <-s.paramsChan:
 			s.processTransportParameters(&p)
 		case _, ok := <-handshakeEvent:
+
 			if !ok { // the aeadChanged chan was closed. This means that the handshake is completed.
-				s.handshakeComplete = true
 				handshakeEvent = nil // prevent this case from ever being selected again
+				if s.version.UsesTLS() {
+					s.queueControlFrame(&wire.HandshakeDoneFrame{})
+					continue
+				}
+				s.handshakeComplete = true
 				if !s.version.UsesTLS() && s.perspective == protocol.PerspectiveClient {
 					// In gQUIC, there's no equivalent to the Finished message in TLS
 					// The server knows that the handshake is complete when it receives the first forward-secure packet sent by the client.
 					// We need to make sure that the client actually sends such a packet.
 					s.packer.QueueControlFrame(&wire.PingFrame{})
 				}
+				s.sentPacketHandler.SetHandshakeComplete()
 				close(s.handshakeChan)
 			} else {
 				s.tryDecryptingQueuedPackets()
@@ -601,13 +606,9 @@ func (s *session) handlePacketImpl(p *receivedPacket) error {
 		return err
 	}
 
-	// In TLS 1.3, the client considers the handshake complete as soon as
-	// it received the server's Finished message and sent its Finished.
-	// We have to wait for the first forward-secure packet from the server before
-	// deleting all handshake packets from the history.
-	if !s.receivedFirstForwardSecurePacket && packet.encryptionLevel == protocol.EncryptionForwardSecure {
-		s.receivedFirstForwardSecurePacket = true
-		s.sentPacketHandler.SetHandshakeComplete()
+	if s.handshakeComplete && s.version.UsesIETFFrameFormat() && hdr.IsLongHeader {
+		s.logger.Debugf("ignoring unecrypted packet after the handshake completes")
+		return nil
 	}
 
 	s.lastRcvdPacketNumber = hdr.PacketNumber
@@ -654,6 +655,8 @@ func (s *session) handleFrames(fs []wire.Frame, encLevel protocol.EncryptionLeve
 		case *wire.StopSendingFrame:
 			err = s.handleStopSendingFrame(frame)
 		case *wire.PingFrame:
+		case *wire.HandshakeDoneFrame:
+			s.handleHandshakeDoneFrame(frame)
 		default:
 			return errors.New("Session BUG: unexpected frame type")
 		}
@@ -750,6 +753,15 @@ func (s *session) handleStopSendingFrame(frame *wire.StopSendingFrame) error {
 	}
 	str.handleStopSendingFrame(frame)
 	return nil
+}
+
+func (s *session) handleHandshakeDoneFrame(frame *wire.HandshakeDoneFrame) {
+	if s.handshakeComplete {
+		return
+	}
+	s.handshakeComplete = true
+	s.sentPacketHandler.SetHandshakeComplete()
+	close(s.handshakeChan)
 }
 
 func (s *session) handleAckFrame(frame *wire.AckFrame, encLevel protocol.EncryptionLevel) error {
