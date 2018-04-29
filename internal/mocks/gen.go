@@ -8,4 +8,5 @@ package mocks
 //go:generate sh -c "./mockgen_internal.sh mocks congestion.go github.com/lucas-clemente/quic-go/internal/congestion SendAlgorithm"
 //go:generate sh -c "./mockgen_internal.sh mocks connection_flow_controller.go github.com/lucas-clemente/quic-go/internal/flowcontrol ConnectionFlowController"
 //go:generate sh -c "./mockgen_internal.sh mockcrypto crypto/aead.go github.com/lucas-clemente/quic-go/internal/crypto AEAD"
+//go:generate sh -c "./mockgen_internal.sh mockcrypto crypto/updatable_aead.go github.com/lucas-clemente/quic-go/internal/crypto UpdatableAEAD"
 //go:generate sh -c "goimports -w ."

@@ -27,34 +27,62 @@ func qhkdfExpand(secret []byte, label string, length int) []byte {
 	return mint.HkdfExpand(crypto.SHA256, secret, qlabel, length)
 }
 
-// DeriveAESKeys derives the AES keys and creates a matching AES-GCM AEAD instance
-func DeriveAESKeys(tls TLSExporter, pers protocol.Perspective) (AEAD, error) {
-	var myLabel, otherLabel string
-	if pers == protocol.PerspectiveClient {
-		myLabel = clientExporterLabel
-		otherLabel = serverExporterLabel
-	} else {
-		myLabel = serverExporterLabel
-		otherLabel = clientExporterLabel
-	}
-	myKey, myIV, err := computeKeyAndIV(tls, myLabel)
-	if err != nil {
-		return nil, err
-	}
-	otherKey, otherIV, err := computeKeyAndIV(tls, otherLabel)
-	if err != nil {
-		return nil, err
-	}
-	return NewAEADAESGCM(otherKey, myKey, otherIV, myIV)
+type updatableAEAD struct {
+	AEAD
+
+	exporter TLSExporter
+
+	ourSecret   string
+	theirSecret string
 }
 
-func computeKeyAndIV(tls TLSExporter, label string) (key, iv []byte, err error) {
-	cs := tls.GetCipherSuite()
-	secret, err := tls.ComputeExporter(label, nil, cs.Hash.Size())
+var _ UpdatableAEAD = &updatableAEAD{}
+
+// NewUpdatableAEAD gets the 1-RTT AEAD needed for IETF QUIC
+func NewUpdatableAEAD(exporter TLSExporter, pers protocol.Perspective) (UpdatableAEAD, error) {
+	var ourLabel, theirLabel string
+	if pers == protocol.PerspectiveClient {
+		ourLabel = clientExporterLabel
+		theirLabel = serverExporterLabel
+	} else {
+		ourLabel = serverExporterLabel
+		theirLabel = clientExporterLabel
+	}
+	return (&updatableAEAD{
+		exporter:    exporter,
+		ourSecret:   ourLabel,
+		theirSecret: theirLabel,
+	}).Next()
+}
+
+func (h *updatableAEAD) Next() (UpdatableAEAD, error) {
+	ourSecret, ourKey, ourIV, err := h.computeKeyAndIV(h.ourSecret)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
+	}
+	theirSecret, theirKey, theirIV, err := h.computeKeyAndIV(h.theirSecret)
+	if err != nil {
+		return nil, err
+	}
+	aead, err := NewAEADAESGCM(theirKey, ourKey, theirIV, ourIV)
+	if err != nil {
+		return nil, err
+	}
+	return &updatableAEAD{
+		AEAD:        aead,
+		exporter:    h.exporter,
+		ourSecret:   string(ourSecret),
+		theirSecret: string(theirSecret),
+	}, nil
+}
+
+func (h *updatableAEAD) computeKeyAndIV(label string) (secret, key, iv []byte, err error) {
+	cs := h.exporter.GetCipherSuite()
+	secret, err = h.exporter.ComputeExporter(label, nil, cs.Hash.Size())
+	if err != nil {
+		return nil, nil, nil, err
 	}
 	key = qhkdfExpand(secret, "key", cs.KeyLen)
 	iv = qhkdfExpand(secret, "iv", cs.IvLen)
-	return key, iv, nil
+	return secret, key, iv, nil
 }

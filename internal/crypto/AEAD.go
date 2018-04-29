@@ -8,3 +8,9 @@ type AEAD interface {
 	Seal(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) []byte
 	Overhead() int
 }
+
+// An UpdatableAEAD is an AEAD that can derive an updated AEAD from its current state
+type UpdatableAEAD interface {
+	AEAD
+	Next() (UpdatableAEAD, error)
+}

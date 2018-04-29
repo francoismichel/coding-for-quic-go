@@ -15,7 +15,7 @@ import (
 var ErrCloseSessionForRetry = errors.New("closing session in order to recreate after a retry")
 
 // KeyDerivationFunction is used for key derivation
-type KeyDerivationFunction func(crypto.TLSExporter, protocol.Perspective) (crypto.AEAD, error)
+type KeyDerivationFunction func(crypto.TLSExporter, protocol.Perspective) (crypto.UpdatableAEAD, error)
 
 type cryptoSetupTLS struct {
 	mutex sync.RWMutex
@@ -46,7 +46,7 @@ func NewCryptoSetupTLSServer(
 		cryptoStream:   cryptoStream,
 		nullAEAD:       nullAEAD,
 		perspective:    protocol.PerspectiveServer,
-		keyDerivation:  crypto.DeriveAESKeys,
+		keyDerivation:  crypto.NewUpdatableAEAD,
 		handshakeEvent: handshakeEvent,
 	}
 }
@@ -69,7 +69,7 @@ func NewCryptoSetupTLSClient(
 		perspective:    protocol.PerspectiveClient,
 		tls:            tls,
 		nullAEAD:       nullAEAD,
-		keyDerivation:  crypto.DeriveAESKeys,
+		keyDerivation:  crypto.NewUpdatableAEAD,
 		handshakeEvent: handshakeEvent,
 	}, nil
 }
