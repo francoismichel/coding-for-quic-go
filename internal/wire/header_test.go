@@ -26,14 +26,14 @@ var _ = Describe("Header", func() {
 				IsLongHeader:     false,
 				DestConnectionID: protocol.ConnectionID{1, 2, 3, 4, 5, 6, 7, 8},
 				SrcConnectionID:  protocol.ConnectionID{1, 2, 3, 4, 5, 6, 7, 8},
-				KeyPhase:         1,
+				KeyPhase:         protocol.KeyPhaseOne,
 				PacketNumber:     0x42,
 				PacketNumberLen:  protocol.PacketNumberLen2,
 			}).writeHeader(buf)
 			Expect(err).ToNot(HaveOccurred())
 			hdr, err := ParseHeaderSentByClient(bytes.NewReader(buf.Bytes()))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(hdr.KeyPhase).To(BeEquivalentTo(1))
+			Expect(hdr.KeyPhase).To(Equal(protocol.KeyPhaseOne))
 			Expect(hdr.PacketNumber).To(Equal(protocol.PacketNumber(0x42)))
 			Expect(hdr.isPublicHeader).To(BeFalse())
 		})
@@ -194,7 +194,7 @@ var _ = Describe("Header", func() {
 				SrcConnectionID:  protocol.ConnectionID{1, 2, 3, 4, 5, 6, 7, 8},
 				PacketNumber:     0x42,
 				PacketNumberLen:  protocol.PacketNumberLen2,
-				KeyPhase:         1,
+				KeyPhase:         protocol.KeyPhaseZero,
 			}
 			err := hdr.Write(buf, protocol.PerspectiveServer, versionIETFHeader)
 			Expect(err).ToNot(HaveOccurred())
@@ -234,7 +234,7 @@ var _ = Describe("Header", func() {
 				SrcConnectionID:  protocol.ConnectionID{1, 2, 3, 4, 5, 6, 7, 8},
 				PacketNumber:     0x42,
 				PacketNumberLen:  protocol.PacketNumberLen2,
-				KeyPhase:         1,
+				KeyPhase:         protocol.KeyPhaseOne,
 			}
 			err := hdr.Write(buf, protocol.PerspectiveServer, versionIETFHeader)
 			Expect(err).ToNot(HaveOccurred())

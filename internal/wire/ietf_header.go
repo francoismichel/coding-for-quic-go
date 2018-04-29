@@ -92,6 +92,10 @@ func parseLongHeader(b *bytes.Reader, sentBy protocol.Perspective, typeByte byte
 }
 
 func parseShortHeader(b *bytes.Reader, typeByte byte) (*Header, error) {
+	var keyPhase protocol.KeyPhase
+	if typeByte&0x40 != 0 {
+		keyPhase = protocol.KeyPhaseOne
+	}
 	connID := make(protocol.ConnectionID, 8)
 	if _, err := io.ReadFull(b, connID); err != nil {
 		if err == io.ErrUnexpectedEOF {
@@ -119,7 +123,7 @@ func parseShortHeader(b *bytes.Reader, typeByte byte) (*Header, error) {
 		return nil, err
 	}
 	return &Header{
-		KeyPhase:         int(typeByte&0x40) >> 6,
+		KeyPhase:         keyPhase,
 		DestConnectionID: connID,
 		PacketNumber:     protocol.PacketNumber(pn),
 		PacketNumberLen:  pnLen,
@@ -155,7 +159,9 @@ func (h *Header) writeLongHeader(b *bytes.Buffer) error {
 
 func (h *Header) writeShortHeader(b *bytes.Buffer) error {
 	typeByte := byte(0x30)
-	typeByte |= byte(h.KeyPhase << 6)
+	if h.KeyPhase == protocol.KeyPhaseOne {
+		typeByte |= 1 << 6
+	}
 	switch h.PacketNumberLen {
 	case protocol.PacketNumberLen1:
 	case protocol.PacketNumberLen2:
@@ -200,7 +206,7 @@ func (h *Header) logHeader(logger utils.Logger) {
 			logger.Debugf("   Long Header{Type: %s, DestConnectionID: %s, SrcConnectionID: %s, PacketNumber: %#x, PayloadLen: %d, Version: %s}", h.Type, h.DestConnectionID, h.SrcConnectionID, h.PacketNumber, h.PayloadLen, h.Version)
 		}
 	} else {
-		logger.Debugf("   Short Header{DestConnectionID: %s, PacketNumber: %#x, PacketNumberLen: %d, KeyPhase: %d}", h.DestConnectionID, h.PacketNumber, h.PacketNumberLen, h.KeyPhase)
+		logger.Debugf("   Short Header{DestConnectionID: %s, PacketNumber: %#x, PacketNumberLen: %d, KeyPhase: %s}", h.DestConnectionID, h.PacketNumber, h.PacketNumberLen, h.KeyPhase)
 	}
 }
 

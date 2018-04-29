@@ -201,7 +201,7 @@ var _ = Describe("IETF QUIC Header", func() {
 				h, err := parseHeader(b, protocol.PerspectiveClient)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(h.IsLongHeader).To(BeFalse())
-				Expect(h.KeyPhase).To(Equal(0))
+				Expect(h.KeyPhase).To(Equal(protocol.KeyPhaseZero))
 				Expect(h.OmitConnectionID).To(BeFalse())
 				Expect(h.DestConnectionID).To(Equal(protocol.ConnectionID{0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0x13, 0x37}))
 				Expect(h.SrcConnectionID).To(BeEmpty())
@@ -220,7 +220,7 @@ var _ = Describe("IETF QUIC Header", func() {
 				h, err := parseHeader(b, protocol.PerspectiveClient)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(h.IsLongHeader).To(BeFalse())
-				Expect(h.KeyPhase).To(Equal(1))
+				Expect(h.KeyPhase).To(Equal(protocol.KeyPhaseOne))
 				Expect(b.Len()).To(BeZero())
 			})
 
@@ -423,7 +423,7 @@ var _ = Describe("IETF QUIC Header", func() {
 
 			It("writes the Key Phase Bit", func() {
 				err := (&Header{
-					KeyPhase:         1,
+					KeyPhase:         protocol.KeyPhaseOne,
 					OmitConnectionID: true,
 					PacketNumberLen:  protocol.PacketNumberLen1,
 					PacketNumber:     0x42,
@@ -568,7 +568,7 @@ var _ = Describe("IETF QUIC Header", func() {
 
 		It("logs Short Headers containing a connection ID", func() {
 			(&Header{
-				KeyPhase:         1,
+				KeyPhase:         protocol.KeyPhaseOne,
 				PacketNumber:     0x1337,
 				PacketNumberLen:  4,
 				DestConnectionID: protocol.ConnectionID{0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0x13, 0x37},

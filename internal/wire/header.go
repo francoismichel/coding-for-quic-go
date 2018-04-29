@@ -32,7 +32,7 @@ type Header struct {
 	// only needed for the IETF Header
 	Type         protocol.PacketType
 	IsLongHeader bool
-	KeyPhase     int
+	KeyPhase     protocol.KeyPhase
 	PayloadLen   protocol.ByteCount
 
 	// only needed for logging
