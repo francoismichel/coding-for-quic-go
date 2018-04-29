@@ -35,16 +35,16 @@ func (m *MockQuicAEAD) EXPECT() *MockQuicAEADMockRecorder {
 }
 
 // Open1RTT mocks base method
-func (m *MockQuicAEAD) Open1RTT(arg0, arg1 []byte, arg2 protocol.PacketNumber, arg3 []byte) ([]byte, error) {
-	ret := m.ctrl.Call(m, "Open1RTT", arg0, arg1, arg2, arg3)
+func (m *MockQuicAEAD) Open1RTT(arg0, arg1 []byte, arg2 protocol.PacketNumber, arg3 protocol.KeyPhase, arg4 []byte) ([]byte, error) {
+	ret := m.ctrl.Call(m, "Open1RTT", arg0, arg1, arg2, arg3, arg4)
 	ret0, _ := ret[0].([]byte)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // Open1RTT indicates an expected call of Open1RTT
-func (mr *MockQuicAEADMockRecorder) Open1RTT(arg0, arg1, arg2, arg3 interface{}) *gomock.Call {
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Open1RTT", reflect.TypeOf((*MockQuicAEAD)(nil).Open1RTT), arg0, arg1, arg2, arg3)
+func (mr *MockQuicAEADMockRecorder) Open1RTT(arg0, arg1, arg2, arg3, arg4 interface{}) *gomock.Call {
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Open1RTT", reflect.TypeOf((*MockQuicAEAD)(nil).Open1RTT), arg0, arg1, arg2, arg3, arg4)
 }
 
 // OpenHandshake mocks base method

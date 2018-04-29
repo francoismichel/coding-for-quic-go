@@ -19,7 +19,7 @@ type gQUICAEAD interface {
 
 type quicAEAD interface {
 	OpenHandshake(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, error)
-	Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, error)
+	Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, keyPhase protocol.KeyPhase, associatedData []byte) ([]byte, error)
 }
 
 type packetUnpackerBase struct {
@@ -107,7 +107,7 @@ func (u *packetUnpacker) Unpack(headerBinary []byte, hdr *wire.Header, data []by
 		decrypted, err = u.aead.OpenHandshake(buf, data, hdr.PacketNumber, headerBinary)
 		encryptionLevel = protocol.EncryptionUnencrypted
 	} else {
-		decrypted, err = u.aead.Open1RTT(buf, data, hdr.PacketNumber, headerBinary)
+		decrypted, err = u.aead.Open1RTT(buf, data, hdr.PacketNumber, hdr.KeyPhase, headerBinary)
 		encryptionLevel = protocol.EncryptionForwardSecure
 	}
 	if err != nil {

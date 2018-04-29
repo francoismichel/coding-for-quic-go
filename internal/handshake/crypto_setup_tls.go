@@ -113,10 +113,11 @@ func (h *cryptoSetupTLS) OpenHandshake(dst, src []byte, packetNumber protocol.Pa
 	return h.nullAEAD.Open(dst, src, packetNumber, associatedData)
 }
 
-func (h *cryptoSetupTLS) Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, error) {
+func (h *cryptoSetupTLS) Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, _ protocol.KeyPhase, associatedData []byte) ([]byte, error) {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
 
+	// TODO(#904): use the key phase
 	if h.aead == nil {
 		return nil, errors.New("no 1-RTT sealer")
 	}

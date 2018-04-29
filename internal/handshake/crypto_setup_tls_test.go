@@ -143,7 +143,7 @@ var _ = Describe("TLS Crypto Setup", func() {
 			It("is used for opening", func() {
 				doHandshake()
 				cs.aead.(*mockcrypto.MockAEAD).EXPECT().Open(nil, []byte("encrypted"), protocol.PacketNumber(6), []byte{}).Return([]byte("decrypted"), nil)
-				d, err := cs.Open1RTT(nil, []byte("encrypted"), 6, []byte{})
+				d, err := cs.Open1RTT(nil, []byte("encrypted"), 6, protocol.KeyPhaseOne, []byte{})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(d).To(Equal([]byte("decrypted")))
 			})

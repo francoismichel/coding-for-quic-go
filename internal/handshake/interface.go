@@ -56,7 +56,7 @@ type CryptoSetupTLS interface {
 	baseCryptoSetup
 
 	OpenHandshake(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, error)
-	Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, error)
+	Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, keyPhase protocol.KeyPhase, associatedData []byte) ([]byte, error)
 }
 
 // ConnectionState records basic details about the QUIC connection.

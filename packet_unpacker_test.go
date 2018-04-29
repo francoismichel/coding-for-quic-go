@@ -66,6 +66,7 @@ var _ = Describe("Packet Unpacker (for IETF QUIC)", func() {
 		hdr = &wire.Header{
 			PacketNumber:    10,
 			PacketNumberLen: 1,
+			KeyPhase:        protocol.KeyPhaseOne,
 			Raw:             []byte{0x04, 0x4c, 0x01},
 		}
 		unpacker = newPacketUnpacker(aead, versionIETFFrames).(*packetUnpacker)
@@ -73,7 +74,7 @@ var _ = Describe("Packet Unpacker (for IETF QUIC)", func() {
 
 	It("errors if the packet doesn't contain any payload", func() {
 		data := []byte("foobar")
-		aead.EXPECT().Open1RTT(gomock.Any(), []byte("foobar"), hdr.PacketNumber, hdr.Raw).Return([]byte{}, nil)
+		aead.EXPECT().Open1RTT(gomock.Any(), []byte("foobar"), hdr.PacketNumber, protocol.KeyPhaseOne, hdr.Raw).Return([]byte{}, nil)
 		_, err := unpacker.Unpack(hdr.Raw, hdr, data)
 		Expect(err).To(MatchError(qerr.MissingPayload))
 	})
@@ -90,7 +91,7 @@ var _ = Describe("Packet Unpacker (for IETF QUIC)", func() {
 		buf := &bytes.Buffer{}
 		(&wire.PingFrame{}).Write(buf, versionIETFFrames)
 		(&wire.BlockedFrame{}).Write(buf, versionIETFFrames)
-		aead.EXPECT().Open1RTT(gomock.Any(), gomock.Any(), hdr.PacketNumber, hdr.Raw).Return(buf.Bytes(), nil)
+		aead.EXPECT().Open1RTT(gomock.Any(), gomock.Any(), hdr.PacketNumber, protocol.KeyPhaseOne, hdr.Raw).Return(buf.Bytes(), nil)
 		packet, err := unpacker.Unpack(hdr.Raw, hdr, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(packet.frames).To(Equal([]wire.Frame{&wire.PingFrame{}, &wire.BlockedFrame{}}))

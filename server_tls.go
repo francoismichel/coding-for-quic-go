@@ -25,7 +25,7 @@ func (n *nullAEAD) OpenHandshake(dst, src []byte, packetNumber protocol.PacketNu
 	return n.aead.Open(dst, src, packetNumber, associatedData)
 }
 
-func (n *nullAEAD) Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) ([]byte, error) {
+func (n *nullAEAD) Open1RTT(dst, src []byte, _ protocol.PacketNumber, _ protocol.KeyPhase, associatedData []byte) ([]byte, error) {
 	return nil, errors.New("no 1-RTT keys")
 }
 
