@@ -133,7 +133,7 @@ var _ = Describe("TLS Crypto Setup", func() {
 		Context("forward-secure encryption", func() {
 			It("is used for sealing after the handshake completes", func() {
 				doHandshake()
-				cs.aead.(*mockcrypto.MockUpdatableAEAD).EXPECT().Seal(nil, []byte("foobar"), protocol.PacketNumber(5), []byte{}).Return([]byte("foobar forward sec"))
+				cs.currentAEAD.(*mockcrypto.MockUpdatableAEAD).EXPECT().Seal(nil, []byte("foobar"), protocol.PacketNumber(5), []byte{}).Return([]byte("foobar forward sec"))
 				enc, sealer := cs.GetSealer()
 				Expect(enc).To(Equal(protocol.EncryptionForwardSecure))
 				d := sealer.Seal(nil, []byte("foobar"), 5, []byte{})
@@ -142,7 +142,7 @@ var _ = Describe("TLS Crypto Setup", func() {
 
 			It("is used for opening", func() {
 				doHandshake()
-				cs.aead.(*mockcrypto.MockUpdatableAEAD).EXPECT().Open(nil, []byte("encrypted"), protocol.PacketNumber(6), []byte{}).Return([]byte("decrypted"), nil)
+				cs.currentAEAD.(*mockcrypto.MockUpdatableAEAD).EXPECT().Open(nil, []byte("encrypted"), protocol.PacketNumber(6), []byte{}).Return([]byte("decrypted"), nil)
 				d, err := cs.Open1RTT(nil, []byte("encrypted"), 6, protocol.KeyPhaseOne, []byte{})
 				Expect(err).ToNot(HaveOccurred())
 				Expect(d).To(Equal([]byte("decrypted")))
@@ -161,7 +161,7 @@ var _ = Describe("TLS Crypto Setup", func() {
 
 			It("forces forward-secure encryption", func() {
 				doHandshake()
-				cs.aead.(*mockcrypto.MockUpdatableAEAD).EXPECT().Seal(nil, []byte("foobar"), protocol.PacketNumber(5), []byte{}).Return([]byte("foobar forward sec"))
+				cs.currentAEAD.(*mockcrypto.MockUpdatableAEAD).EXPECT().Seal(nil, []byte("foobar"), protocol.PacketNumber(5), []byte{}).Return([]byte("foobar forward sec"))
 				sealer, err := cs.GetSealerWithEncryptionLevel(protocol.EncryptionForwardSecure)
 				Expect(err).ToNot(HaveOccurred())
 				d := sealer.Seal(nil, []byte("foobar"), 5, []byte{})

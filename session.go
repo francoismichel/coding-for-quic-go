@@ -316,6 +316,7 @@ func newTLSServerSession(
 		cryptoStreamConn,
 		nullAEAD,
 		handshakeEvent,
+		s.logger,
 		v,
 	)
 	s.cryptoStreamHandler = cs
@@ -375,6 +376,7 @@ var newTLSClientSession = func(
 		hostname,
 		handshakeEvent,
 		tls,
+		s.logger,
 		v,
 	)
 	if err != nil {

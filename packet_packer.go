@@ -39,6 +39,10 @@ type sealingManager interface {
 	GetSealerWithEncryptionLevel(protocol.EncryptionLevel) (handshake.Sealer, error)
 }
 
+type keyPhaseGetter interface {
+	KeyPhase() protocol.KeyPhase
+}
+
 type streamFrameSource interface {
 	HasCryptoStreamData() bool
 	PopCryptoStreamFrame(protocol.ByteCount) *wire.StreamFrame
@@ -509,6 +513,8 @@ func (p *packetPacker) writeAndSealPacket(
 			}
 			header.PayloadLen = payloadLen
 		}
+	} else if p.version.UsesIETFFrameFormat() { // IETF QUIC Short Header
+		header.KeyPhase = sealer.(keyPhaseGetter).KeyPhase()
 	}
 
 	if err := header.Write(buffer, p.perspective, p.version); err != nil {

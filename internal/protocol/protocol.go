@@ -69,6 +69,10 @@ func (p KeyPhase) String() string {
 	return "1"
 }
 
+func (p KeyPhase) Next() KeyPhase {
+	return !p
+}
+
 // A ByteCount in QUIC
 type ByteCount uint64
 

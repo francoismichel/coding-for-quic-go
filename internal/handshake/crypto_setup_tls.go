@@ -9,6 +9,7 @@ import (
 	"github.com/bifurcation/mint"
 	"github.com/lucas-clemente/quic-go/internal/crypto"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/utils"
 )
 
 // ErrCloseSessionForRetry is returned by HandleCryptoStream when the server wishes to perform a stateless retry
@@ -17,18 +18,47 @@ var ErrCloseSessionForRetry = errors.New("closing session in order to recreate a
 // KeyDerivationFunction is used for key derivation
 type KeyDerivationFunction func(crypto.TLSExporter, protocol.Perspective) (crypto.UpdatableAEAD, error)
 
+type countingAEAD struct {
+	crypto.UpdatableAEAD
+
+	keyPhase protocol.KeyPhase
+
+	numSeal int
+}
+
+var _ crypto.UpdatableAEAD = &countingAEAD{}
+
+func (c *countingAEAD) Seal(dst, src []byte, packetNumber protocol.PacketNumber, associatedData []byte) []byte {
+	c.numSeal++
+	return c.UpdatableAEAD.Seal(dst, src, packetNumber, associatedData)
+}
+
+func (c *countingAEAD) KeyPhase() protocol.KeyPhase {
+	return c.keyPhase
+}
+
 type cryptoSetupTLS struct {
 	mutex sync.RWMutex
 
 	perspective protocol.Perspective
 
-	keyDerivation KeyDerivationFunction
-	nullAEAD      crypto.AEAD
-	aead          crypto.AEAD
+	keyDerivation   KeyDerivationFunction
+	nullAEAD        crypto.AEAD
+	lastAEAD        crypto.AEAD
+	currentAEAD     *countingAEAD
+	currentKeyPhase protocol.KeyPhase
+	nextAEAD        *countingAEAD // is never used to open or seal, only cached for the next key update
+
+	receivedPacketWithCurrentAEAD bool
+	firstReceivedWithCurrentAEAD  protocol.PacketNumber
+	sentPacketWithCurrentAEAD     bool
+	firstSentWithCurrentAEAD      protocol.PacketNumber
 
 	tls            MintTLS
 	cryptoStream   *CryptoStreamConn
 	handshakeEvent chan<- struct{}
+
+	logger utils.Logger
 }
 
 var _ CryptoSetupTLS = &cryptoSetupTLS{}
@@ -39,6 +69,7 @@ func NewCryptoSetupTLSServer(
 	cryptoStream *CryptoStreamConn,
 	nullAEAD crypto.AEAD,
 	handshakeEvent chan<- struct{},
+	logger utils.Logger,
 	version protocol.VersionNumber,
 ) CryptoSetupTLS {
 	return &cryptoSetupTLS{
@@ -48,6 +79,7 @@ func NewCryptoSetupTLSServer(
 		perspective:    protocol.PerspectiveServer,
 		keyDerivation:  crypto.NewUpdatableAEAD,
 		handshakeEvent: handshakeEvent,
+		logger:         logger,
 	}
 }
 
@@ -58,6 +90,7 @@ func NewCryptoSetupTLSClient(
 	hostname string,
 	handshakeEvent chan<- struct{},
 	tls MintTLS,
+	logger utils.Logger,
 	version protocol.VersionNumber,
 ) (CryptoSetupTLS, error) {
 	nullAEAD, err := crypto.NewNullAEAD(protocol.PerspectiveClient, connID, version)
@@ -71,6 +104,7 @@ func NewCryptoSetupTLSClient(
 		nullAEAD:       nullAEAD,
 		keyDerivation:  crypto.NewUpdatableAEAD,
 		handshakeEvent: handshakeEvent,
+		logger:         logger,
 	}, nil
 }
 
@@ -100,8 +134,19 @@ handshakeLoop:
 	if err != nil {
 		return err
 	}
+	nextAEAD, err := aead.Next()
+	if err != nil {
+		return err
+	}
 	h.mutex.Lock()
-	h.aead = aead
+	h.currentAEAD = &countingAEAD{
+		UpdatableAEAD: aead,
+		keyPhase:      protocol.KeyPhaseZero,
+	}
+	h.nextAEAD = &countingAEAD{
+		UpdatableAEAD: nextAEAD,
+		keyPhase:      protocol.KeyPhaseOne,
+	}
 	h.mutex.Unlock()
 
 	h.handshakeEvent <- struct{}{}
@@ -113,40 +158,103 @@ func (h *cryptoSetupTLS) OpenHandshake(dst, src []byte, packetNumber protocol.Pa
 	return h.nullAEAD.Open(dst, src, packetNumber, associatedData)
 }
 
-func (h *cryptoSetupTLS) Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, _ protocol.KeyPhase, associatedData []byte) ([]byte, error) {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
+func (h *cryptoSetupTLS) Open1RTT(dst, src []byte, packetNumber protocol.PacketNumber, keyPhase protocol.KeyPhase, associatedData []byte) ([]byte, error) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
 
-	// TODO(#904): use the key phase
-	if h.aead == nil {
+	if h.currentAEAD == nil {
 		return nil, errors.New("no 1-RTT sealer")
 	}
-	return h.aead.Open(dst, src, packetNumber, associatedData)
+	if keyPhase == h.currentKeyPhase {
+		data, err := h.currentAEAD.Open(dst, src, packetNumber, associatedData)
+		if err == nil && !h.receivedPacketWithCurrentAEAD {
+			h.receivedPacketWithCurrentAEAD = true
+			h.firstReceivedWithCurrentAEAD = packetNumber
+		}
+		return data, err
+	}
+
+	// The packet has a different key phase than our current key phase.
+	// This can either an old packet, sent under the last AEAD keys...
+	if !h.receivedPacketWithCurrentAEAD || packetNumber < h.firstReceivedWithCurrentAEAD {
+		if h.lastAEAD == nil {
+			return nil, errors.New("bla")
+		}
+		return h.lastAEAD.Open(dst, src, packetNumber, associatedData)
+	}
+	// ... or the peer updated the keys.
+	// First try to open the packet (to make sure it's not a maliciously injected packet)...
+	data, err := h.nextAEAD.Open(dst, src, packetNumber, associatedData)
+	if err != nil {
+		return nil, err
+	}
+	// TODO: implement a check that this is not a consecutive key update.
+	// ... if opening succeeds, update our AEADs.
+	h.logger.Debugf("Received a packet with the next key phase. Updating 1-RTT key.")
+	if err := h.updateAEAD(); err != nil {
+		return nil, err
+	}
+	h.receivedPacketWithCurrentAEAD = true
+	h.firstReceivedWithCurrentAEAD = packetNumber
+	return data, nil
+}
+
+func (h *cryptoSetupTLS) maybeUpdateAEAD() error {
+	if h.currentAEAD.numSeal < protocol.KeyRotationInterval {
+		return nil
+	}
+	// TODO: make sure that we don't update the AEAD if we haven't received a packet
+	h.logger.Debugf("Updating 1-RTT keys, since this key was already used for sealing %d packets.", h.currentAEAD.numSeal)
+	return h.updateAEAD()
+}
+
+func (h *cryptoSetupTLS) updateAEAD() error {
+	nextAEAD, err := h.currentAEAD.Next()
+	if err != nil {
+		return err
+	}
+	nextKeyPhase := h.currentAEAD.KeyPhase().Next()
+	h.lastAEAD = h.currentAEAD
+	h.currentAEAD = h.nextAEAD
+	h.currentKeyPhase = h.currentAEAD.KeyPhase()
+	h.firstReceivedWithCurrentAEAD = 0
+	h.receivedPacketWithCurrentAEAD = false
+	h.nextAEAD = &countingAEAD{
+		UpdatableAEAD: nextAEAD,
+		keyPhase:      nextKeyPhase,
+	}
+	return nil
 }
 
 func (h *cryptoSetupTLS) GetSealer() (protocol.EncryptionLevel, Sealer) {
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
 
-	if h.aead != nil {
-		return protocol.EncryptionForwardSecure, h.aead
+	if h.currentAEAD != nil {
+		if err := h.maybeUpdateAEAD(); err != nil {
+			panic(err)
+		}
+		return protocol.EncryptionForwardSecure, h.currentAEAD
 	}
 	return protocol.EncryptionUnencrypted, h.nullAEAD
 }
 
 func (h *cryptoSetupTLS) GetSealerWithEncryptionLevel(encLevel protocol.EncryptionLevel) (Sealer, error) {
 	errNoSealer := fmt.Errorf("CryptoSetup: no sealer with encryption level %s", encLevel.String())
-	h.mutex.RLock()
-	defer h.mutex.RUnlock()
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
 
 	switch encLevel {
 	case protocol.EncryptionUnencrypted:
 		return h.nullAEAD, nil
 	case protocol.EncryptionForwardSecure:
-		if h.aead == nil {
+		if h.currentAEAD == nil {
 			return nil, errNoSealer
 		}
-		return h.aead, nil
+		if err := h.maybeUpdateAEAD(); err != nil {
+			return nil, err
+		}
+		return h.currentAEAD, nil
 	default:
 		return nil, errNoSealer
 	}
@@ -162,7 +270,7 @@ func (h *cryptoSetupTLS) ConnectionState() ConnectionState {
 	mintConnState := h.tls.ConnectionState()
 	return ConnectionState{
 		// TODO: set the ServerName, once mint exports it
-		HandshakeComplete: h.aead != nil,
+		HandshakeComplete: h.currentAEAD != nil,
 		PeerCertificates:  mintConnState.PeerCertificates,
 	}
 }

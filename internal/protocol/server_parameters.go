@@ -149,3 +149,6 @@ const MinPacingDelay time.Duration = 100 * time.Microsecond
 // so we need to know this value in advance (or encode it into the connection ID).
 // TODO: make this configurable
 const ConnectionIDLen = 8
+
+// KeyRotationInterval is ...
+const KeyRotationInterval = DefaultMaxCongestionWindow / 3
