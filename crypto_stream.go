@@ -36,7 +36,7 @@ func (s *cryptoStreamImpl) HandleCryptoFrame(f *wire.CryptoFrame) error {
 	if maxOffset := f.Offset + protocol.ByteCount(len(f.Data)); maxOffset > protocol.MaxCryptoStreamOffset {
 		return fmt.Errorf("received invalid offset %d on crypto stream, maximum allowed %d", maxOffset, protocol.MaxCryptoStreamOffset)
 	}
-	return s.queue.Push(f.Data, f.Offset, false)
+	return s.queue.Push(f.Data, f.Offset)
 }
 
 // GetCryptoData retrieves data that was received in CRYPTO frames

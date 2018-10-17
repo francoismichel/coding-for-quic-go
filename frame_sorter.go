@@ -8,36 +8,31 @@ import (
 )
 
 type frameSorter struct {
-	queue       map[protocol.ByteCount][]byte
-	readPos     protocol.ByteCount
-	finalOffset protocol.ByteCount
-	gaps        *utils.ByteIntervalList
+	queue   map[protocol.ByteCount][]byte
+	readPos protocol.ByteCount
+	gaps    *utils.ByteIntervalList
 }
 
 var errDuplicateStreamData = errors.New("Duplicate Stream Data")
 
 func newFrameSorter() *frameSorter {
 	s := frameSorter{
-		gaps:        utils.NewByteIntervalList(),
-		queue:       make(map[protocol.ByteCount][]byte),
-		finalOffset: protocol.MaxByteCount,
+		gaps:  utils.NewByteIntervalList(),
+		queue: make(map[protocol.ByteCount][]byte),
 	}
 	s.gaps.PushFront(utils.ByteInterval{Start: 0, End: protocol.MaxByteCount})
 	return &s
 }
 
-func (s *frameSorter) Push(data []byte, offset protocol.ByteCount, fin bool) error {
-	err := s.push(data, offset, fin)
+func (s *frameSorter) Push(data []byte, offset protocol.ByteCount) error {
+	err := s.push(data, offset)
 	if err == errDuplicateStreamData {
 		return nil
 	}
 	return err
 }
 
-func (s *frameSorter) push(data []byte, offset protocol.ByteCount, fin bool) error {
-	if fin {
-		s.finalOffset = offset + protocol.ByteCount(len(data))
-	}
+func (s *frameSorter) push(data []byte, offset protocol.ByteCount) error {
 	if len(data) == 0 {
 		return nil
 	}
@@ -147,12 +142,13 @@ func (s *frameSorter) push(data []byte, offset protocol.ByteCount, fin bool) err
 	return nil
 }
 
-func (s *frameSorter) Pop() ([]byte /* data */, bool /* fin */) {
-	data, ok := s.queue[s.readPos]
+func (s *frameSorter) Pop() ([]byte /* data */, protocol.ByteCount /* offset */) {
+	offset := s.readPos
+	data, ok := s.queue[offset]
 	if !ok {
-		return nil, s.readPos >= s.finalOffset
+		return nil, offset
 	}
-	delete(s.queue, s.readPos)
+	delete(s.queue, offset)
 	s.readPos += protocol.ByteCount(len(data))
-	return data, s.readPos >= s.finalOffset
+	return data, offset
 }

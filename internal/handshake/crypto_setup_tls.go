@@ -247,7 +247,7 @@ func (h *cryptoSetupTLS) HandleData(data []byte, encLevel protocol.EncryptionLev
 		buf = &h.handshakeReadBuf
 	default:
 		return fmt.Errorf("received handshake data with unexpected encryption level: %s", encLevel)
-	}
+		}
 	buf.Write(data)
 	for buf.Len() >= 4 {
 		b := buf.Bytes()

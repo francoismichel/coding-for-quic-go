@@ -27,7 +27,7 @@ type receiveStream struct {
 
 	sender streamSender
 
-	frameQueue *frameSorter
+	frameQueue *streamFrameSorter
 	readOffset protocol.ByteCount
 
 	currentFrame       []byte
@@ -63,7 +63,7 @@ func newReceiveStream(
 		streamID:       streamID,
 		sender:         sender,
 		flowController: flowController,
-		frameQueue:     newFrameSorter(),
+		frameQueue:     newStreamFrameSorter(),
 		readChan:       make(chan struct{}, 1),
 		version:        version,
 	}
@@ -211,7 +211,7 @@ func (s *receiveStream) handleStreamFrame(frame *wire.StreamFrame) error {
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if err := s.frameQueue.Push(frame.Data, frame.Offset, frame.FinBit); err != nil {
+	if err := s.frameQueue.Push(frame); err != nil {
 		return err
 	}
 	s.signalRead()
