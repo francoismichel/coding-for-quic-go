@@ -55,7 +55,6 @@ type sentPacketHandler struct {
 	congestion congestion.SendAlgorithm
 	rttStats   *congestion.RTTStats
 
-	handshakeComplete bool
 	// The number of times the handshake packets have been retransmitted without receiving an ack.
 	handshakeCount uint32
 
@@ -122,7 +121,6 @@ func (h *sentPacketHandler) SetHandshakeComplete() {
 		h.packetHistory.Remove(p.PacketNumber)
 	}
 	h.retransmissionQueue = queue
-	h.handshakeComplete = true
 }
 
 func (h *sentPacketHandler) SentPacket(packet *Packet) {

@@ -902,10 +902,6 @@ var _ = Describe("SentPacketHandler", func() {
 	})
 
 	Context("handshake packets", func() {
-		BeforeEach(func() {
-			handler.handshakeComplete = false
-		})
-
 		It("detects the handshake timeout", func() {
 			now := time.Now()
 			sendTime := now.Add(-time.Minute)
