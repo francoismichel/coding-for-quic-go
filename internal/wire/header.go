@@ -96,7 +96,7 @@ func (h *Header) writeLongHeader(b *bytes.Buffer, v protocol.VersionNumber) erro
 		return utils.WriteVarIntPacketNumber(b, h.PacketNumber, h.PacketNumberLen)
 	}
 	utils.BigEndian.WriteUint32(b, uint32(h.PacketNumber))
-	if h.Type == protocol.PacketType0RTT && v == protocol.Version44 {
+	if h.Type == protocol.PacketType0RTT && v.UsesDiversificationNonces() {
 		if len(h.DiversificationNonce) != 32 {
 			return errors.New("invalid diversification nonce length")
 		}
@@ -215,7 +215,7 @@ func (h *Header) getHeaderLength(v protocol.VersionNumber) (protocol.ByteCount, 
 		if h.Type == protocol.PacketTypeInitial && v.UsesTokenInHeader() {
 			length += utils.VarIntLen(uint64(len(h.Token))) + protocol.ByteCount(len(h.Token))
 		}
-		if h.Type == protocol.PacketType0RTT && v == protocol.Version44 {
+		if h.Type == protocol.PacketType0RTT && v.UsesDiversificationNonces() {
 			length += protocol.ByteCount(len(h.DiversificationNonce))
 		}
 		return length, nil
@@ -275,7 +275,7 @@ func (h *Header) logHeader(logger utils.Logger) {
 				logger.Debugf("\tLong Header{Type: %s, DestConnectionID: %s, SrcConnectionID: %s, %sOrigDestConnectionID: %s, Version: %s}", h.Type, h.DestConnectionID, h.SrcConnectionID, token, h.OrigDestConnectionID, h.Version)
 				return
 			}
-			if h.Version == protocol.Version44 {
+			if h.Version.UsesDiversificationNonces() {
 				var divNonce string
 				if h.Type == protocol.PacketType0RTT {
 					divNonce = fmt.Sprintf("Diversification Nonce: %#x, ", h.DiversificationNonce)

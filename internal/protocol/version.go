@@ -96,6 +96,11 @@ func (vn VersionNumber) UsesTokenInHeader() bool {
 	return !vn.isGQUIC()
 }
 
+// UsesDiversificationNonces tells if this version uses diversification nonces
+func (vn VersionNumber) UsesDiversificationNonces() bool {
+	return vn.isGQUIC()
+}
+
 // UsesStopWaitingFrames tells if this version uses STOP_WAITING frames
 func (vn VersionNumber) UsesStopWaitingFrames() bool {
 	return vn.isGQUIC() && vn <= Version43

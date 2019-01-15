@@ -93,6 +93,13 @@ var _ = Describe("Version", func() {
 		Expect(VersionTLS.UsesVarintPacketNumbers()).To(BeTrue())
 	})
 
+	It("tells if a version uses diversification nonces", func() {
+		Expect(Version39.UsesDiversificationNonces()).To(BeTrue())
+		Expect(Version43.UsesDiversificationNonces()).To(BeTrue())
+		Expect(Version44.UsesDiversificationNonces()).To(BeTrue())
+		Expect(VersionTLS.UsesDiversificationNonces()).To(BeFalse())
+	})
+
 	It("tells if a version uses the Length field in the IETF header", func() {
 		Expect(Version44.UsesLengthInHeader()).To(BeFalse())
 		Expect(VersionTLS.UsesLengthInHeader()).To(BeTrue())
