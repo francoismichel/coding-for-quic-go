@@ -273,7 +273,7 @@ func populateServerConfig(config *Config) *Config {
 		connIDLen = protocol.DefaultConnectionIDLength
 	}
 	for _, v := range versions {
-		if v == protocol.Version44 {
+		if v == protocol.Version44 || v == protocol.Version45 {
 			connIDLen = protocol.ConnectionIDLenGQUIC
 		}
 	}
