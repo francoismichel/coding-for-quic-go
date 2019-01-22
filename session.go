@@ -1169,6 +1169,7 @@ func (s *session) newFlowController(id protocol.StreamID) flowcontrol.StreamFlow
 		s.onHasStreamWindowUpdate,
 		s.rttStats,
 		s.logger,
+		s.version,
 	)
 }
 
@@ -1184,6 +1185,7 @@ func (s *session) newCryptoStream() cryptoStream {
 		s.onHasStreamWindowUpdate,
 		s.rttStats,
 		s.logger,
+		s.version,
 	)
 	return newCryptoStream(s, flowController, s.version)
 }

@@ -20,6 +20,8 @@ type streamFlowController struct {
 	contributesToConnection bool // does the stream contribute to connection level flow control
 
 	receivedFinalOffset bool
+
+	version protocol.VersionNumber
 }
 
 var _ StreamFlowController = &streamFlowController{}
@@ -35,12 +37,14 @@ func NewStreamFlowController(
 	queueWindowUpdate func(protocol.StreamID),
 	rttStats *congestion.RTTStats,
 	logger utils.Logger,
+	version protocol.VersionNumber,
 ) StreamFlowController {
 	return &streamFlowController{
 		streamID:                streamID,
 		contributesToConnection: contributesToConnection,
 		connection:              cfc.(connectionFlowControllerI),
 		queueWindowUpdate:       func() { queueWindowUpdate(streamID) },
+		version:                 version,
 		baseFlowController: baseFlowController{
 			rttStats:             rttStats,
 			receiveWindow:        receiveWindow,
@@ -95,6 +99,9 @@ func (c *streamFlowController) UpdateHighestReceived(byteOffset protocol.ByteCou
 
 func (c *streamFlowController) AddBytesRead(n protocol.ByteCount) {
 	c.baseFlowController.AddBytesRead(n)
+	if c.streamID != c.version.CryptoStreamID() {
+		c.maybeQueueWindowUpdate()
+	}
 	if c.contributesToConnection {
 		c.connection.AddBytesRead(n)
 	}
@@ -115,15 +122,12 @@ func (c *streamFlowController) SendWindowSize() protocol.ByteCount {
 	return window
 }
 
-func (c *streamFlowController) MaybeQueueWindowUpdate() {
+func (c *streamFlowController) maybeQueueWindowUpdate() {
 	c.mutex.Lock()
 	hasWindowUpdate := !c.receivedFinalOffset && c.hasWindowUpdate()
 	c.mutex.Unlock()
 	if hasWindowUpdate {
 		c.queueWindowUpdate()
-	}
-	if c.contributesToConnection {
-		c.connection.MaybeQueueWindowUpdate()
 	}
 }
 
