@@ -28,8 +28,9 @@ type receiveStream struct {
 
 	sender streamSender
 
-	frameQueue *frameSorter
-	readOffset protocol.ByteCount
+	frameQueue  *frameSorter
+	readOffset  protocol.ByteCount
+	finalOffset protocol.ByteCount
 
 	currentFrame       []byte
 	currentFrameIsLast bool // is the currentFrame the last frame on this stream
@@ -66,6 +67,7 @@ func newReceiveStream(
 		flowController: flowController,
 		frameQueue:     newFrameSorter(),
 		readChan:       make(chan struct{}, 1),
+		finalOffset:    protocol.MaxByteCount,
 		version:        version,
 	}
 }
@@ -182,7 +184,9 @@ func (s *receiveStream) readImpl(p []byte) (bool /*stream completed */, int, err
 }
 
 func (s *receiveStream) dequeueNextFrame() {
-	s.currentFrame, s.currentFrameIsLast = s.frameQueue.Pop()
+	var offset protocol.ByteCount
+	offset, s.currentFrame = s.frameQueue.Pop()
+	s.currentFrameIsLast = offset+protocol.ByteCount(len(s.currentFrame)) >= s.finalOffset
 	s.readPosInFrame = 0
 }
 
@@ -213,8 +217,11 @@ func (s *receiveStream) handleStreamFrame(frame *wire.StreamFrame) error {
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	if err := s.frameQueue.Push(frame.Data, frame.Offset, frame.FinBit); err != nil {
+	if err := s.frameQueue.Push(frame.Data, frame.Offset); err != nil {
 		return err
+	}
+	if frame.FinBit {
+		s.finalOffset = maxOffset
 	}
 	s.signalRead()
 	return nil
@@ -244,6 +251,7 @@ func (s *receiveStream) handleRstStreamFrameImpl(frame *wire.RstStreamFrame) (bo
 	if !s.version.UsesIETFFrameFormat() && frame.ErrorCode == 0 {
 		return false, nil
 	}
+	s.finalOffset = frame.ByteOffset
 
 	// ignore duplicate RST_STREAM frames for this stream (after checking their final offset)
 	if s.resetRemotely {
