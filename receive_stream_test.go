@@ -458,26 +458,22 @@ var _ = Describe("Receive Stream", func() {
 					close(done)
 				}()
 				Consistently(done).ShouldNot(BeClosed())
-				err := str.CancelRead(1234)
-				Expect(err).ToNot(HaveOccurred())
+				Expect(str.CancelRead(1234)).To(Succeed())
 				Eventually(done).Should(BeClosed())
 			})
 
 			It("doesn't allow further calls to Read", func() {
 				mockSender.EXPECT().queueControlFrame(gomock.Any())
-				err := str.CancelRead(1234)
-				Expect(err).ToNot(HaveOccurred())
-				_, err = strWithTimeout.Read([]byte{0})
+				Expect(str.CancelRead(1234)).To(Succeed())
+				_, err := strWithTimeout.Read([]byte{0})
 				Expect(err).To(MatchError("Read on stream 1337 canceled with error code 1234"))
 			})
 
 			It("does nothing when CancelRead is called twice", func() {
 				mockSender.EXPECT().queueControlFrame(gomock.Any())
-				err := str.CancelRead(1234)
-				Expect(err).ToNot(HaveOccurred())
-				err = str.CancelRead(2345)
-				Expect(err).ToNot(HaveOccurred())
-				_, err = strWithTimeout.Read([]byte{0})
+				Expect(str.CancelRead(1234)).To(Succeed())
+				Expect(str.CancelRead(1234)).To(Succeed())
+				_, err := strWithTimeout.Read([]byte{0})
 				Expect(err).To(MatchError("Read on stream 1337 canceled with error code 1234"))
 			})
 
@@ -505,7 +501,10 @@ var _ = Describe("Receive Stream", func() {
 			})
 
 			It("doesn't send a STOP_SENDING frame, if the stream was already reset", func() {
-				mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true)
+				gomock.InOrder(
+					mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true),
+					mockFC.EXPECT().Abandon(),
+				)
 				mockSender.EXPECT().onStreamCompleted(streamID)
 				Expect(str.handleRstStreamFrame(&wire.RstStreamFrame{
 					StreamID:   streamID,
@@ -514,11 +513,30 @@ var _ = Describe("Receive Stream", func() {
 				Expect(str.CancelRead(1234)).To(Succeed())
 			})
 
-			It("doesn't queue a STOP_SENDING frame, for gQUIC", func() {
-				str.version = versionGQUICFrames
-				// no calls to mockSender.queueControlFrame
-				err := str.CancelRead(1234)
-				Expect(err).ToNot(HaveOccurred())
+			It("sends a STOP_SENDING and completes the stream after receiving the final offset", func() {
+				mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(1000), true)
+				Expect(str.handleStreamFrame(&wire.StreamFrame{
+					Offset: 1000,
+					FinBit: true,
+				})).To(Succeed())
+				mockFC.EXPECT().Abandon()
+				mockSender.EXPECT().queueControlFrame(gomock.Any())
+				mockSender.EXPECT().onStreamCompleted(streamID)
+				Expect(str.CancelRead(1234)).To(Succeed())
+			})
+
+			It("completes the stream when receiving the FinBit after the stream was canceled", func() {
+				mockSender.EXPECT().queueControlFrame(gomock.Any())
+				Expect(str.CancelRead(1234)).To(Succeed())
+				gomock.InOrder(
+					mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(1000), true),
+					mockFC.EXPECT().Abandon(),
+				)
+				mockSender.EXPECT().onStreamCompleted(streamID)
+				Expect(str.handleStreamFrame(&wire.StreamFrame{
+					Offset: 1000,
+					FinBit: true,
+				})).To(Succeed())
 			})
 		})
 
@@ -530,7 +548,6 @@ var _ = Describe("Receive Stream", func() {
 			}
 
 			It("unblocks Read", func() {
-				mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true)
 				done := make(chan struct{})
 				go func() {
 					defer GinkgoRecover()
@@ -543,16 +560,22 @@ var _ = Describe("Receive Stream", func() {
 				}()
 				Consistently(done).ShouldNot(BeClosed())
 				mockSender.EXPECT().onStreamCompleted(streamID)
+				gomock.InOrder(
+					mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true),
+					mockFC.EXPECT().Abandon(),
+				)
 				str.handleRstStreamFrame(rst)
 				Eventually(done).Should(BeClosed())
 			})
 
 			It("doesn't allow further calls to Read", func() {
 				mockSender.EXPECT().onStreamCompleted(streamID)
-				mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true)
-				err := str.handleRstStreamFrame(rst)
-				Expect(err).ToNot(HaveOccurred())
-				_, err = strWithTimeout.Read([]byte{0})
+				gomock.InOrder(
+					mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true),
+					mockFC.EXPECT().Abandon(),
+				)
+				Expect(str.handleRstStreamFrame(rst)).To(Succeed())
+				_, err := strWithTimeout.Read([]byte{0})
 				Expect(err).To(MatchError("Stream 1337 was reset with error code 1234"))
 				Expect(err).To(BeAssignableToTypeOf(streamCanceledError{}))
 				Expect(err.(streamCanceledError).Canceled()).To(BeTrue())
@@ -568,11 +591,10 @@ var _ = Describe("Receive Stream", func() {
 
 			It("ignores duplicate RST_STREAM frames", func() {
 				mockSender.EXPECT().onStreamCompleted(streamID)
+				mockFC.EXPECT().Abandon()
 				mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true).Times(2)
-				err := str.handleRstStreamFrame(rst)
-				Expect(err).ToNot(HaveOccurred())
-				err = str.handleRstStreamFrame(rst)
-				Expect(err).ToNot(HaveOccurred())
+				Expect(str.handleRstStreamFrame(rst)).To(Succeed())
+				Expect(str.handleRstStreamFrame(rst)).To(Succeed())
 			})
 
 			It("doesn't do anyting when it was closed for shutdown", func() {
@@ -587,7 +609,10 @@ var _ = Describe("Receive Stream", func() {
 				})
 
 				It("unblocks Read when receiving a RST_STREAM frame with non-zero error code", func() {
-					mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true)
+					gomock.InOrder(
+						mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(42), true),
+						mockFC.EXPECT().Abandon(),
+					)
 					readReturned := make(chan struct{})
 					go func() {
 						defer GinkgoRecover()

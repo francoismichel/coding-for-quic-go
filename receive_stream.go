@@ -80,7 +80,7 @@ func (s *receiveStream) StreamID() protocol.StreamID {
 func (s *receiveStream) Read(p []byte) (int, error) {
 	completed, n, err := s.readImpl(p)
 	if completed {
-		s.sender.onStreamCompleted(s.streamID)
+		s.streamCompleted()
 	}
 	return n, err
 }
@@ -197,6 +197,9 @@ func (s *receiveStream) CancelRead(errorCode protocol.ApplicationErrorCode) erro
 	if s.finRead || s.canceledRead || s.resetRemotely {
 		return nil
 	}
+	if s.finalOffset != protocol.MaxByteCount { // final offset was already received
+		s.streamCompleted()
+	}
 	s.canceledRead = true
 	s.cancelReadErr = fmt.Errorf("Read on stream %d canceled with error code %d", s.streamID, errorCode)
 	s.signalRead()
@@ -211,12 +214,22 @@ func (s *receiveStream) CancelRead(errorCode protocol.ApplicationErrorCode) erro
 
 func (s *receiveStream) handleStreamFrame(frame *wire.StreamFrame) error {
 	maxOffset := frame.Offset + frame.DataLen()
-	if err := s.flowController.UpdateHighestReceived(maxOffset, frame.FinBit); err != nil {
-		return err
-	}
 
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
+
+	if err := s.flowController.UpdateHighestReceived(maxOffset, frame.FinBit); err != nil {
+		return err
+	}
+	if frame.FinBit {
+		s.finalOffset = maxOffset
+	}
+	if s.canceledRead {
+		if frame.FinBit {
+			s.streamCompleted()
+		}
+		return nil
+	}
 	if err := s.frameQueue.Push(frame.Data, frame.Offset); err != nil {
 		return err
 	}
@@ -230,7 +243,7 @@ func (s *receiveStream) handleStreamFrame(frame *wire.StreamFrame) error {
 func (s *receiveStream) handleRstStreamFrame(frame *wire.RstStreamFrame) error {
 	completed, err := s.handleRstStreamFrameImpl(frame)
 	if completed {
-		s.sender.onStreamCompleted(s.streamID)
+		s.streamCompleted()
 	}
 	return err
 }
@@ -301,6 +314,13 @@ func (s *receiveStream) closeForShutdown(err error) {
 
 func (s *receiveStream) getWindowUpdate() protocol.ByteCount {
 	return s.flowController.GetWindowUpdate()
+}
+
+func (s *receiveStream) streamCompleted() {
+	if !s.finRead {
+		s.flowController.Abandon()
+	}
+	s.sender.onStreamCompleted(s.streamID)
 }
 
 // signalRead performs a non-blocking send on the readChan

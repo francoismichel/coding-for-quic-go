@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/golang/mock/gomock"
 	"github.com/lucas-clemente/quic-go/internal/mocks"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/wire"
@@ -72,7 +73,10 @@ var _ = Describe("Stream", func() {
 					ErrorCode:  errorCodeStoppingGQUIC,
 				})
 				mockSender.EXPECT().onStreamCompleted(streamID)
-				mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(6), true)
+				gomock.InOrder(
+					mockFC.EXPECT().UpdateHighestReceived(protocol.ByteCount(6), true),
+					mockFC.EXPECT().Abandon(),
+				)
 				str.writeOffset = 1000
 				f := &wire.RstStreamFrame{
 					StreamID:   streamID,

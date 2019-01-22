@@ -158,6 +158,21 @@ var _ = Describe("Stream Flow controller", func() {
 				err = controller.UpdateHighestReceived(201, true)
 				Expect(err).To(MatchError("StreamDataAfterTermination: Received inconsistent final offset for stream 10 (old: 200, new: 201 bytes)"))
 			})
+
+			It("tells the connection flow controller when a stream is abandoned", func() {
+				controller.contributesToConnection = true
+				controller.AddBytesRead(5)
+				Expect(controller.UpdateHighestReceived(100, true)).To(Succeed())
+				controller.Abandon()
+				Expect(controller.connection.(*connectionFlowController).bytesRead).To(Equal(protocol.ByteCount(100)))
+			})
+
+			It("tells the connection flow controller when a non-contributing stream is abandoned", func() {
+				controller.AddBytesRead(5)
+				Expect(controller.UpdateHighestReceived(100, true)).To(Succeed())
+				controller.Abandon()
+				Expect(controller.connection.(*connectionFlowController).bytesRead).To(BeZero())
+			})
 		})
 
 		Context("registering data read", func() {
@@ -228,6 +243,14 @@ var _ = Describe("Stream Flow controller", func() {
 				Expect(offset).ToNot(BeZero())
 				Expect(controller.receiveWindowSize).To(Equal(2 * oldWindowSize))
 				Expect(controller.connection.(*connectionFlowController).receiveWindowSize).To(Equal(protocol.ByteCount(2 * oldWindowSize))) // unchanged
+			})
+
+			It("sends a connection-level window update when a large stream is abandoned", func() {
+				controller.contributesToConnection = true
+				Expect(controller.UpdateHighestReceived(90, true)).To(Succeed())
+				Expect(controller.connection.GetWindowUpdate()).To(BeZero())
+				controller.Abandon()
+				Expect(controller.connection.GetWindowUpdate()).ToNot(BeZero())
 			})
 
 			It("doesn't increase the window after a final offset was already received", func() {
