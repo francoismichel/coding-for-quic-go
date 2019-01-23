@@ -17,6 +17,9 @@ type incomingUniStreamsMap struct {
 	cond  sync.Cond
 
 	streams map[protocol.StreamID]receiveStreamI
+	// When a stream is deleted before it was accepted, we can't delete it immediately.
+	// We need to wait until the application accepts it, and delete it immediately then.
+	streamsToDelete map[protocol.StreamID]struct{} // used as a set
 
 	nextStream    protocol.StreamID // the next stream that will be returned by AcceptStream()
 	highestStream protocol.StreamID // the highest stream that the peer openend
@@ -38,6 +41,7 @@ func newIncomingUniStreamsMap(
 ) *incomingUniStreamsMap {
 	m := &incomingUniStreamsMap{
 		streams:          make(map[protocol.StreamID]receiveStreamI),
+		streamsToDelete:  make(map[protocol.StreamID]struct{}),
 		nextStream:       nextStream,
 		maxStream:        initialMaxStreamID,
 		maxNumStreams:    maxNumStreams,
@@ -52,19 +56,28 @@ func (m *incomingUniStreamsMap) AcceptStream() (receiveStreamI, error) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	var id protocol.StreamID
 	var str receiveStreamI
 	for {
+		id = m.nextStream
 		var ok bool
 		if m.closeErr != nil {
 			return nil, m.closeErr
 		}
-		str, ok = m.streams[m.nextStream]
+		str, ok = m.streams[id]
 		if ok {
 			break
 		}
 		m.cond.Wait()
 	}
 	m.nextStream += 4
+	// If this stream was completed before being accepted, we can delete it now.
+	if _, ok := m.streamsToDelete[id]; ok {
+		delete(m.streamsToDelete, id)
+		if err := m.deleteStream(id); err != nil {
+			return nil, err
+		}
+	}
 	return str, nil
 }
 
@@ -78,7 +91,11 @@ func (m *incomingUniStreamsMap) GetOrOpenStream(id protocol.StreamID) (receiveSt
 	// * this stream exists in the map, and we can return it, or
 	// * this stream was already closed, then we can return the nil
 	if id <= m.highestStream {
-		s := m.streams[id]
+		var s receiveStreamI
+		// If the stream was already queued for deletion, and is just waiting to be accepted, don't return it.
+		if _, ok := m.streamsToDelete[id]; !ok {
+			s = m.streams[id]
+		}
 		m.mutex.RUnlock()
 		return s, nil
 	}
@@ -108,9 +125,24 @@ func (m *incomingUniStreamsMap) DeleteStream(id protocol.StreamID) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	return m.deleteStream(id)
+}
+
+func (m *incomingUniStreamsMap) deleteStream(id protocol.StreamID) error {
 	if _, ok := m.streams[id]; !ok {
 		return fmt.Errorf("Tried to delete unknown stream %d", id)
 	}
+
+	// Don't delete this stream yet, if it was not yet accepted.
+	// Just save it to streamsToDelete map, to make sure it is deleted as soon as it gets accepted.
+	if id >= m.nextStream {
+		if _, ok := m.streamsToDelete[id]; ok {
+			return fmt.Errorf("Tried to delete stream %d multiple times", id)
+		}
+		m.streamsToDelete[id] = struct{}{}
+		return nil
+	}
+
 	delete(m.streams, id)
 	// queue a MAX_STREAM_ID frame, giving the peer the option to open a new stream
 	if numNewStreams := m.maxNumStreams - len(m.streams); numNewStreams > 0 {

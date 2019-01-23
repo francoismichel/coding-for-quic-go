@@ -148,6 +148,17 @@ var _ = Describe("Streams Map (for IETF QUIC)", func() {
 					Expect(dstr).To(BeNil())
 				})
 
+				It("accepts bidirectional streams after they have been deleted", func() {
+					id := ids.firstIncomingBidiStream
+					_, err := m.GetOrOpenReceiveStream(id)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(m.DeleteStream(id)).To(Succeed())
+					str, err := m.AcceptStream()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(str).ToNot(BeNil())
+					Expect(str.StreamID()).To(Equal(id))
+				})
+
 				It("deletes outgoing unidirectional streams", func() {
 					id := ids.firstOutgoingUniStream
 					str, err := m.OpenUniStream()
@@ -168,6 +179,17 @@ var _ = Describe("Streams Map (for IETF QUIC)", func() {
 					dstr, err := m.GetOrOpenReceiveStream(id)
 					Expect(err).ToNot(HaveOccurred())
 					Expect(dstr).To(BeNil())
+				})
+
+				It("accepts unirectional streams after they have been deleted", func() {
+					id := ids.firstIncomingUniStream
+					_, err := m.GetOrOpenReceiveStream(id)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(m.DeleteStream(id)).To(Succeed())
+					str, err := m.AcceptUniStream()
+					Expect(err).ToNot(HaveOccurred())
+					Expect(str).ToNot(BeNil())
+					Expect(str.StreamID()).To(Equal(id))
 				})
 			})
 
@@ -332,6 +354,8 @@ var _ = Describe("Streams Map (for IETF QUIC)", func() {
 				It("sends MAX_STREAM_ID frames for bidirectional streams", func() {
 					_, err := m.GetOrOpenReceiveStream(ids.firstIncomingBidiStream + 4*10)
 					Expect(err).ToNot(HaveOccurred())
+					_, err = m.AcceptStream()
+					Expect(err).ToNot(HaveOccurred())
 					mockSender.EXPECT().queueControlFrame(&wire.MaxStreamIDFrame{
 						StreamID: protocol.MaxBidiStreamID(maxBidiStreams, perspective) + 4,
 					})
@@ -340,6 +364,8 @@ var _ = Describe("Streams Map (for IETF QUIC)", func() {
 
 				It("sends MAX_STREAM_ID frames for unidirectional streams", func() {
 					_, err := m.GetOrOpenReceiveStream(ids.firstIncomingUniStream + 4*10)
+					Expect(err).ToNot(HaveOccurred())
+					_, err = m.AcceptUniStream()
 					Expect(err).ToNot(HaveOccurred())
 					mockSender.EXPECT().queueControlFrame(&wire.MaxStreamIDFrame{
 						StreamID: protocol.MaxUniStreamID(maxUniStreams, perspective) + 4,
