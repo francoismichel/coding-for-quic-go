@@ -399,12 +399,7 @@ runLoop:
 		if s.pacingDeadline.IsZero() { // the timer didn't have a pacing deadline set
 			pacingDeadline = s.sentPacketHandler.TimeUntilSend()
 		}
-		if s.config.KeepAlive && !s.keepAlivePingSent && s.handshakeComplete && s.firstAckElicitingPacketAfterIdleSentTime.IsZero() && time.Since(s.lastPacketReceivedTime) >= s.peerParams.IdleTimeout/2 {
-			// send a PING frame since there is no activity in the session
-			s.logger.Debugf("Sending a keep-alive ping to keep the connection alive.")
-			s.framer.QueueControlFrame(&wire.PingFrame{})
-			s.keepAlivePingSent = true
-		} else if !pacingDeadline.IsZero() && now.Before(pacingDeadline) {
+		if !pacingDeadline.IsZero() && now.Before(pacingDeadline) {
 			// If we get to this point before the pacing deadline, we should wait until that deadline.
 			// This can happen when scheduleSending is called, or a packet is received.
 			// Set the timer and restart the run loop.
@@ -412,13 +407,24 @@ runLoop:
 			continue
 		}
 
-		if !s.handshakeComplete && now.Sub(s.sessionCreationTime) >= s.config.HandshakeTimeout {
-			s.destroy(qerr.TimeoutError("Handshake did not complete in time"))
-			continue
-		}
-		if s.handshakeComplete && now.Sub(s.idleTimeoutStartTime()) >= s.config.IdleTimeout {
-			s.destroy(qerr.TimeoutError("No recent network activity"))
-			continue
+		if !s.handshakeComplete {
+			if now.Sub(s.sessionCreationTime) >= s.config.HandshakeTimeout {
+				s.destroy(qerr.TimeoutError("Handshake did not complete in time"))
+				continue
+			}
+		} else {
+			if now.Sub(s.idleTimeoutStartTime()) >= s.config.IdleTimeout {
+				s.destroy(qerr.TimeoutError("No recent network activity"))
+				continue
+			}
+			if s.config.KeepAlive && !s.keepAlivePingSent &&
+				s.firstAckElicitingPacketAfterIdleSentTime.IsZero() &&
+				time.Since(s.lastPacketReceivedTime) >= s.peerParams.IdleTimeout/2 {
+				// send a PING frame since there is no activity in the session
+				s.logger.Debugf("Sending a keep-alive ping to keep the connection alive.")
+				s.framer.QueueControlFrame(&wire.PingFrame{})
+				s.keepAlivePingSent = true
+			}
 		}
 
 		if err := s.sendPackets(); err != nil {
