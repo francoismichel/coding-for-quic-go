@@ -45,7 +45,7 @@ type sentPacketHandler struct {
 
 	initialPackets   *packetNumberSpace
 	handshakePackets *packetNumberSpace
-	oneRTTPackets    *packetNumberSpace
+	appDataPackets   *packetNumberSpace
 
 	// lowestNotConfirmedAcked is the lowest packet number that we sent an ACK for, but haven't received confirmation, that this ACK actually arrived
 	// example: we send an ACK for packets 90-100 with packet number 20
@@ -97,7 +97,7 @@ func NewSentPacketHandler(
 	return &sentPacketHandler{
 		initialPackets:   newPacketNumberSpace(initialPacketNumber),
 		handshakePackets: newPacketNumberSpace(0),
-		oneRTTPackets:    newPacketNumberSpace(0),
+		appDataPackets:   newPacketNumberSpace(0),
 		rttStats:         rttStats,
 		congestion:       congestion,
 		traceCallback:    traceCallback,
@@ -157,8 +157,8 @@ func (h *sentPacketHandler) getPacketNumberSpace(encLevel protocol.EncryptionLev
 		return h.initialPackets
 	case protocol.EncryptionHandshake:
 		return h.handshakePackets
-	case protocol.Encryption1RTT:
-		return h.oneRTTPackets
+	case protocol.Encryption0RTT, protocol.Encryption1RTT:
+		return h.appDataPackets
 	default:
 		panic("invalid packet number space")
 	}
@@ -326,7 +326,7 @@ func (h *sentPacketHandler) hasOutstandingCryptoPackets() bool {
 }
 
 func (h *sentPacketHandler) hasOutstandingPackets() bool {
-	return h.oneRTTPackets.history.HasOutstandingPackets() || h.hasOutstandingCryptoPackets()
+	return h.appDataPackets.history.HasOutstandingPackets() || h.hasOutstandingCryptoPackets()
 }
 
 func (h *sentPacketHandler) updateLossDetectionAlarm() {
@@ -557,7 +557,7 @@ func (h *sentPacketHandler) PopPacketNumber(encLevel protocol.EncryptionLevel) p
 }
 
 func (h *sentPacketHandler) SendMode() SendMode {
-	numTrackedPackets := len(h.retransmissionQueue) + h.oneRTTPackets.history.Len()
+	numTrackedPackets := len(h.retransmissionQueue) + h.appDataPackets.history.Len()
 	if h.initialPackets != nil {
 		numTrackedPackets += h.initialPackets.history.Len()
 	}
