@@ -231,6 +231,11 @@ func (h *cryptoSetup) ChangeConnectionID(id protocol.ConnectionID) error {
 
 func (h *cryptoSetup) SetLargest1RTTAcked(pn protocol.PacketNumber) {
 	h.aead.SetLargestAcked(pn)
+	// Handshake keys are dropped when receiving an ACK for a 1-RTT packet.
+	// We therefore need to ignore ACKs for 0-RTT packets.
+	if pn > h.aead.FirstPacketNumber() {
+		return
+	}
 	// drop initial keys
 	// TODO: do this earlier
 	if h.initialOpener != nil {
@@ -275,7 +280,6 @@ func (h *cryptoSetup) RunHandshake() {
 }
 
 func (h *cryptoSetup) onError(alert uint8, message string) {
-
 	h.runner.OnError(qerr.CryptoError(alert, message))
 }
 
