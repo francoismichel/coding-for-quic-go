@@ -16,6 +16,7 @@ import (
 
 type packer interface {
 	PackPacket() (*packedPacket, error)
+	Pack0RTTPacket() (*packedPacket, error)
 	MaybePackAckPacket() (*packedPacket, error)
 	PackRetransmission(packet *ackhandler.Packet) ([]*packedPacket, error)
 	PackConnectionClose(*wire.ConnectionCloseFrame) (*packedPacket, error)
@@ -53,6 +54,8 @@ func (p *packedPacket) EncryptionLevel() protocol.EncryptionLevel {
 		return protocol.EncryptionInitial
 	case protocol.PacketTypeHandshake:
 		return protocol.EncryptionHandshake
+	case protocol.PacketType0RTT:
+		return protocol.Encryption0RTT
 	default:
 		return protocol.EncryptionUnspecified
 	}
@@ -99,6 +102,7 @@ type packetNumberManager interface {
 type sealingManager interface {
 	GetInitialSealer() (handshake.LongHeaderSealer, error)
 	GetHandshakeSealer() (handshake.LongHeaderSealer, error)
+	Get0RTTSealer() (handshake.LongHeaderSealer, error)
 	Get1RTTSealer() (handshake.ShortHeaderSealer, error)
 }
 
@@ -353,6 +357,19 @@ func (p *packetPacker) PackPacket() (*packedPacket, error) {
 	return p.writeAndSealPacket(header, payload, protocol.Encryption1RTT, sealer)
 }
 
+func (p *packetPacker) Pack0RTTPacket() (*packedPacket, error) {
+	sealer, _ := p.cryptoSetup.Get0RTTSealer()
+	if sealer == nil {
+		return nil, nil
+	}
+	hdr := p.getLongHeader(protocol.Encryption0RTT)
+
+	var payload payload
+	payload.frames = []wire.Frame{&wire.PingFrame{}, &wire.PingFrame{}, &wire.PingFrame{}}
+	payload.length = 3
+	return p.writeAndSealPacket(hdr, payload, protocol.Encryption0RTT, sealer)
+}
+
 func (p *packetPacker) maybePackCryptoPacket() (*packedPacket, error) {
 	var s cryptoStream
 	var encLevel protocol.EncryptionLevel
@@ -475,11 +492,13 @@ func (p *packetPacker) getLongHeader(encLevel protocol.EncryptionLevel) *wire.Ex
 		hdr.Type = protocol.PacketTypeInitial
 	case protocol.EncryptionHandshake:
 		hdr.Type = protocol.PacketTypeHandshake
+	case protocol.Encryption0RTT:
+		hdr.Type = protocol.PacketType0RTT
 	}
 
 	hdr.Version = p.version
 	hdr.IsLongHeader = true
-	// Always send Initial and Handshake packets with the maximum packet number length.
+	// Always send long header packets with the maximum packet number length.
 	// This simplifies retransmissions: Since the header can't get any larger,
 	// we don't need to split CRYPTO frames.
 	hdr.PacketNumberLen = protocol.PacketNumberLen4
