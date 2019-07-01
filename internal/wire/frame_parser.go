@@ -103,11 +103,21 @@ func (p *frameParser) isAllowedAtEncLevel(f Frame, encLevel protocol.EncryptionL
 		switch f.(type) {
 		case *CryptoFrame, *AckFrame, *ConnectionCloseFrame:
 			return true
+		default:
+			return false
+		}
+	case protocol.Encryption0RTT:
+		switch f.(type) {
+		case *CryptoFrame, *AckFrame, *ConnectionCloseFrame, *NewTokenFrame, *PathResponseFrame, *RetireConnectionIDFrame:
+			return false
+		default:
+			return true
 		}
 	case protocol.Encryption1RTT:
 		return true
+	default:
+		panic("unknown encryption level")
 	}
-	return false
 }
 
 func (p *frameParser) SetAckDelayExponent(exp uint8) {
