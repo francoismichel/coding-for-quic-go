@@ -13,3 +13,5 @@ require (
 	golang.org/x/crypto v0.0.0-20190228161510-8dd112bcdc25
 	golang.org/x/net v0.0.0-20190228165749-92fc7df08ae7
 )
+
+replace github.com/marten-seemann/qtls => ../../../github.com/marten-seemann/qtls

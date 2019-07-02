@@ -96,6 +96,8 @@ var errCloseForRecreating = errors.New("closing session in order to recreate it"
 type session struct {
 	sessionRunner sessionRunner
 
+	sent0RTTPacket bool
+
 	destConnID     protocol.ConnectionID
 	origDestConnID protocol.ConnectionID // if the server sends a Retry, this is the connection ID we used initially
 	srcConnID      protocol.ConnectionID
@@ -521,6 +523,7 @@ func (s *session) handleHandshakeComplete() {
 }
 
 func (s *session) handlePacketImpl(rp *receivedPacket) bool {
+	s.logger.Debugf("handlePacketImpl (%d bytes)", len(rp.data))
 	var counter uint8
 	var lastConnID protocol.ConnectionID
 	var processed bool
@@ -581,10 +584,6 @@ func (s *session) handleSinglePacket(p *receivedPacket, hdr *wire.Header) bool /
 	// After this, all packets with a different source connection have to be ignored.
 	if s.receivedFirstPacket && hdr.IsLongHeader && !hdr.SrcConnectionID.Equal(s.destConnID) {
 		s.logger.Debugf("Dropping packet with unexpected source connection ID: %s (expected %s)", hdr.SrcConnectionID, s.destConnID)
-		return false
-	}
-	// drop 0-RTT packets
-	if hdr.Type == protocol.PacketType0RTT {
 		return false
 	}
 
@@ -1162,7 +1161,26 @@ func (s *session) sendProbePacket() error {
 	return nil
 }
 
+func (s *session) send0RTTPacket() error {
+	if s.sent0RTTPacket || !s.receivedFirstPacket {
+		return nil
+	}
+
+	s.logger.Debugf("Trying to send 0-RTT packet.")
+	packet, err := s.packer.Pack0RTTPacket()
+	if err != nil || packet == nil {
+		return err
+	}
+
+	s.sent0RTTPacket = true
+	s.sentPacketHandler.SentPacket(packet.ToAckHandlerPacket())
+	return s.sendPackedPacket(packet)
+}
+
 func (s *session) sendPacket() (bool, error) {
+	if err := s.send0RTTPacket(); err != nil {
+		return false, err
+	}
 	if isBlocked, offset := s.connFlowController.IsNewlyBlocked(); isBlocked {
 		s.framer.QueueControlFrame(&wire.DataBlockedFrame{DataLimit: offset})
 	}

@@ -94,6 +94,9 @@ type cryptoSetup struct {
 	readEncLevel  protocol.EncryptionLevel
 	writeEncLevel protocol.EncryptionLevel
 
+	zeroRTTOpener LongHeaderOpener // only set for the server
+	zeroRTTSealer LongHeaderSealer // only set for the client
+
 	initialStream io.Writer
 	initialOpener LongHeaderOpener
 	initialSealer LongHeaderSealer
@@ -485,6 +488,16 @@ func (h *cryptoSetup) ReadHandshakeMessage() ([]byte, error) {
 func (h *cryptoSetup) SetReadKey(encLevel qtls.EncryptionLevel, suite *qtls.CipherSuite, trafficSecret []byte) {
 	h.mutex.Lock()
 	switch encLevel {
+	case qtls.Encryption0RTT:
+		if h.perspective == protocol.PerspectiveClient {
+			panic("Received 0-RTT write key for the client")
+		}
+		h.zeroRTTOpener = newLongHeaderOpener(
+			createAEAD(suite, trafficSecret),
+			createHeaderProtector(suite, trafficSecret),
+		)
+		h.mutex.Unlock()
+		return
 	case qtls.EncryptionHandshake:
 		h.readEncLevel = protocol.EncryptionHandshake
 		h.handshakeOpener = newLongHeaderOpener(
@@ -507,6 +520,16 @@ func (h *cryptoSetup) SetReadKey(encLevel qtls.EncryptionLevel, suite *qtls.Ciph
 func (h *cryptoSetup) SetWriteKey(encLevel qtls.EncryptionLevel, suite *qtls.CipherSuite, trafficSecret []byte) {
 	h.mutex.Lock()
 	switch encLevel {
+	case qtls.Encryption0RTT:
+		if h.perspective == protocol.PerspectiveServer {
+			panic("Received 0-RTT write key for the server")
+		}
+		h.zeroRTTSealer = newLongHeaderSealer(
+			createAEAD(suite, trafficSecret),
+			createHeaderProtector(suite, trafficSecret),
+		)
+		h.mutex.Unlock()
+		return
 	case qtls.EncryptionHandshake:
 		h.writeEncLevel = protocol.EncryptionHandshake
 		h.handshakeSealer = newLongHeaderSealer(
@@ -568,6 +591,13 @@ func (h *cryptoSetup) GetInitialSealer() (LongHeaderSealer, error) {
 	return h.initialSealer, nil
 }
 
+func (h *cryptoSetup) Get0RTTSealer() (LongHeaderSealer, error) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	return h.zeroRTTSealer, nil
+}
+
 func (h *cryptoSetup) GetHandshakeSealer() (LongHeaderSealer, error) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
@@ -599,6 +629,20 @@ func (h *cryptoSetup) GetInitialOpener() (LongHeaderOpener, error) {
 		return nil, ErrKeysDropped
 	}
 	return h.initialOpener, nil
+}
+
+func (h *cryptoSetup) Get0RTTOpener() (LongHeaderOpener, error) {
+	h.mutex.Lock()
+	defer h.mutex.Unlock()
+
+	if h.zeroRTTOpener == nil {
+		if h.initialOpener != nil {
+			return nil, ErrOpenerNotYetAvailable
+		}
+		// if the initial opener is also not available, the keys were already dropped
+		return nil, ErrKeysDropped
+	}
+	return h.zeroRTTOpener, nil
 }
 
 func (h *cryptoSetup) GetHandshakeOpener() (LongHeaderOpener, error) {

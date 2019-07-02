@@ -64,6 +64,16 @@ func (u *packetUnpacker) Unpack(hdr *wire.Header, data []byte) (*unpackedPacket,
 		if err != nil {
 			return nil, err
 		}
+	case protocol.PacketType0RTT:
+		encLevel = protocol.EncryptionHandshake
+		opener, err := u.cs.Get0RTTOpener()
+		if err != nil {
+			return nil, err
+		}
+		extHdr, decrypted, err = u.unpackLongHeaderPacket(opener, hdr, data)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		if hdr.IsLongHeader {
 			return nil, fmt.Errorf("unknown packet type: %s", hdr.Type)
