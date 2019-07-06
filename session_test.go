@@ -1153,7 +1153,6 @@ var _ = Describe("Session", func() {
 	})
 
 	It("cancels the HandshakeComplete context when the handshake completes", func() {
-		sessionRunner.EXPECT().OnHandshakeComplete(gomock.Any())
 		packer.EXPECT().PackPacket().AnyTimes()
 		finishHandshake := make(chan struct{})
 		go func() {
@@ -1196,17 +1195,14 @@ var _ = Describe("Session", func() {
 
 	It("sends a 1-RTT packet when the handshake completes", func() {
 		done := make(chan struct{})
-		gomock.InOrder(
-			sessionRunner.EXPECT().OnHandshakeComplete(gomock.Any()),
-			packer.EXPECT().PackPacket().DoAndReturn(func() (*packedPacket, error) {
-				defer close(done)
-				return &packedPacket{
-					header: &wire.ExtendedHeader{},
-					buffer: getPacketBuffer(),
-				}, nil
-			}),
-			packer.EXPECT().PackPacket().AnyTimes(),
-		)
+		packer.EXPECT().PackPacket().DoAndReturn(func() (*packedPacket, error) {
+			defer close(done)
+			return &packedPacket{
+				header: &wire.ExtendedHeader{},
+				buffer: getPacketBuffer(),
+			}, nil
+		})
+		packer.EXPECT().PackPacket().AnyTimes()
 		go func() {
 			defer GinkgoRecover()
 			cryptoSetup.EXPECT().RunHandshake()
@@ -1450,7 +1446,6 @@ var _ = Describe("Session", func() {
 			done := make(chan struct{})
 			go func() {
 				defer GinkgoRecover()
-				sessionRunner.EXPECT().OnHandshakeComplete(sess)
 				cryptoSetup.EXPECT().RunHandshake()
 				close(sess.handshakeCompleteChan)
 				err := sess.run()
