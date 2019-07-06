@@ -21,7 +21,7 @@ type FECFrameworkReceiver struct {
 	fecScheme                BlockFECScheme
 }
 
-func NewFECFrameworkReceiver(fecScheme BlockFECScheme, E uint16) *FECFrameworkReceiver {
+func NewBlockFrameworkReceiver(fecScheme BlockFECScheme, E uint16) *FECFrameworkReceiver {
 	buffer := newFecBlocksBuffer(200)
 	return &FECFrameworkReceiver{
 		E: E,
