@@ -2,6 +2,7 @@ package block
 
 import (
 	"bytes"
+	"fmt"
 	"github.com/lucas-clemente/quic-go/internal/fec"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 )
@@ -9,14 +10,14 @@ import (
 
 type BlockFrameworkSender struct {
 	fecScheme            BlockFECScheme
-	redundancyController fec.RedundancyController
+	redundancyController RedundancyController
 	currentBlock         *FECBlock
 	e                    uint16
 
 	BlocksToSend []*FECBlock
 }
 
-func NewBlockFrameworkSender(fecScheme BlockFECScheme, redundancyController fec.RedundancyController, E uint16) *BlockFrameworkSender {
+func NewBlockFrameworkSender(fecScheme BlockFECScheme, redundancyController RedundancyController, E uint16) *BlockFrameworkSender {
 	return &BlockFrameworkSender{
 		fecScheme:            fecScheme,
 		redundancyController: redundancyController,
@@ -43,8 +44,11 @@ func (f *BlockFrameworkSender) protectSourceSymbol(symbol *BlockSourceSymbol) (r
 }
 
 // returns the ID of the first symbol in the payload
-func (f *BlockFrameworkSender) ProtectPayload(payload []byte) (retval protocol.FECPayloadID, err error) {
-	symbols, err := PayloadToSourceSymbols(payload, f.e)
+func (f *BlockFrameworkSender) ProtectPayload(pn protocol.PacketNumber, payload fec.PreProcessedPayload) (retval protocol.FECPayloadID, err error) {
+	if payload == nil || len(payload.Bytes()) == 0 {
+		return retval, fmt.Errorf("asked to protect an empty payload")
+	}
+	symbols, err := PayloadToSourceSymbols(payload.Bytes(), f.e)
 	if err != nil {
 		return retval, err
 	}

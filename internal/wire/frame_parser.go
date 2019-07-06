@@ -84,6 +84,8 @@ func (p *frameParser) parseFrame(r *bytes.Reader, typeByte byte, encLevel protoc
 			frame, err = parsePathResponseFrame(r, p.version)
 		case 0x1c, 0x1d:
 			frame, err = parseConnectionCloseFrame(r, p.version)
+		case 0x22:
+			frame, err = parseRepairFrame(r, p.version)
 		default:
 			err = fmt.Errorf("unknown type byte 0x%x", typeByte)
 		}

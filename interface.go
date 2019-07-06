@@ -3,6 +3,7 @@ package quic
 import (
 	"context"
 	"crypto/tls"
+	"github.com/lucas-clemente/quic-go/internal/fec"
 	"io"
 	"net"
 	"time"
@@ -220,6 +221,15 @@ type Config struct {
 	StatelessResetKey []byte
 	// KeepAlive defines whether this peer will periodically send a packet to keep the connection alive.
 	KeepAlive bool
+	// FECSchemeID identifies the FEC Scheme that must be used for FEC protection at the sender-size
+	FECSchemeID   protocol.FECSchemeID
+	// FECSymbolSize defines the size in bytes of the FEC source and repair symbols
+	// This should be set accordingly to the kind of traffic (large value if the packets are often full)
+	// It cannot be greater than the minimum PMTU (1280 bytes)
+	// If not set (it should be), it will default to 200
+	FECSymbolSize	uint16
+	// FECRedundancyController specifies the controller to use to adapt the redundancy needed to protect the symbols
+	FECRedundancyController fec.RedundancyController
 	// QUIC Event Tracer.
 	// Warning: Experimental. This API should not be considered stable and will change soon.
 	QuicTracer quictrace.Tracer
