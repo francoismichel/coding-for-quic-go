@@ -34,6 +34,11 @@ const (
 	ackDelayExponentParameterID               transportParameterID = 0xa
 	maxAckDelayParameterID                    transportParameterID = 0xb
 	disableMigrationParameterID               transportParameterID = 0xc
+
+	// E value in coding-for-quic
+	// this is the value that will be used by the FEC sender, chosen unilaterally
+	fecSymbolSizeParameterID									transportParameterID = 0xe
+	fecSchemeIDParameterID										transportParameterID = 0xf
 )
 
 // TransportParameters are parameters sent to the peer during the handshake
@@ -56,6 +61,8 @@ type TransportParameters struct {
 
 	StatelessResetToken  *[16]byte
 	OriginalConnectionID protocol.ConnectionID
+	FECSymbolSize		 uint16
+	FECSchemeID			 protocol.FECSchemeID
 }
 
 // Unmarshal the transport parameters
@@ -98,7 +105,9 @@ func (p *TransportParameters) Unmarshal(data []byte, sentBy protocol.Perspective
 			initialMaxStreamsBidiParameterID,
 			initialMaxStreamsUniParameterID,
 			idleTimeoutParameterID,
-			maxPacketSizeParameterID:
+			maxPacketSizeParameterID,
+			fecSymbolSizeParameterID,
+			fecSchemeIDParameterID:
 			if err := p.readNumericTransportParameter(r, paramID, int(paramLen)); err != nil {
 				return err
 			}
@@ -204,6 +213,13 @@ func (p *TransportParameters) readNumericTransportParameter(
 			maxAckDelay = utils.InfDuration
 		}
 		p.MaxAckDelay = maxAckDelay
+	case fecSymbolSizeParameterID:
+		if val > protocol.MAX_FEC_SYMBOL_SIZE {
+			return fmt.Errorf("invalid value for fec_symbol_size: %d bytes (maximum %d bytes)", val, protocol.MAX_FEC_SYMBOL_SIZE)
+		}
+		p.FECSymbolSize = uint16(val)
+	case fecSchemeIDParameterID:
+		p.FECSchemeID = protocol.FECSchemeID(val)
 	default:
 		return fmt.Errorf("TransportParameter BUG: transport parameter %d not found", paramID)
 	}
@@ -239,6 +255,8 @@ func (p *TransportParameters) Marshal() []byte {
 	p.marshalVarintParam(b, idleTimeoutParameterID, uint64(p.IdleTimeout/time.Millisecond))
 	// max_packet_size
 	p.marshalVarintParam(b, maxPacketSizeParameterID, uint64(protocol.MaxReceivePacketSize))
+	// fec_symbol_size
+	p.marshalVarintParam(b, fecSymbolSizeParameterID, uint64(p.FECSymbolSize))
 	// max_ack_delay
 	// Only send it if is different from the default value.
 	if p.MaxAckDelay != protocol.DefaultMaxAckDelay {
@@ -279,8 +297,8 @@ func (p *TransportParameters) marshalVarintParam(b *bytes.Buffer, id transportPa
 
 // String returns a string representation, intended for logging.
 func (p *TransportParameters) String() string {
-	logString := "&handshake.TransportParameters{OriginalConnectionID: %s, InitialMaxStreamDataBidiLocal: %#x, InitialMaxStreamDataBidiRemote: %#x, InitialMaxStreamDataUni: %#x, InitialMaxData: %#x, MaxBidiStreamNum: %d, MaxUniStreamNum: %d, IdleTimeout: %s, AckDelayExponent: %d, MaxAckDelay: %s"
-	logParams := []interface{}{p.OriginalConnectionID, p.InitialMaxStreamDataBidiLocal, p.InitialMaxStreamDataBidiRemote, p.InitialMaxStreamDataUni, p.InitialMaxData, p.MaxBidiStreamNum, p.MaxUniStreamNum, p.IdleTimeout, p.AckDelayExponent, p.MaxAckDelay}
+	logString := "&handshake.TransportParameters{OriginalConnectionID: %s, InitialMaxStreamDataBidiLocal: %#x, InitialMaxStreamDataBidiRemote: %#x, InitialMaxStreamDataUni: %#x, InitialMaxData: %#x, MaxBidiStreamNum: %d, MaxUniStreamNum: %d, IdleTimeout: %s, AckDelayExponent: %d, MaxAckDelay: %s, FECSymbolSize: %#x, FECSchemeID: %s"
+	logParams := []interface{}{p.OriginalConnectionID, p.InitialMaxStreamDataBidiLocal, p.InitialMaxStreamDataBidiRemote, p.InitialMaxStreamDataUni, p.InitialMaxData, p.MaxBidiStreamNum, p.MaxUniStreamNum, p.IdleTimeout, p.AckDelayExponent, p.MaxAckDelay, p.FECSymbolSize, p.FECSchemeID.String()}
 	if p.StatelessResetToken != nil { // the client never sends a stateless reset token
 		logString += ", StatelessResetToken: %#x"
 		logParams = append(logParams, *p.StatelessResetToken)

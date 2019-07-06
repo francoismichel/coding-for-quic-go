@@ -23,6 +23,8 @@ const (
 	PacketReceived
 	// PacketLost means that a packet was lost
 	PacketLost
+	// PacketRecovered means that a packet has been recovered by the use of FEC
+	PacketRecovered
 )
 
 // Event is a quic-traceable event

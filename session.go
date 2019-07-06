@@ -6,6 +6,8 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"github.com/lucas-clemente/quic-go/internal/fec"
+	"github.com/lucas-clemente/quic-go/internal/fec/utils"
 	"io"
 	"net"
 	"reflect"
@@ -128,6 +130,7 @@ type session struct {
 
 	cryptoStreamHandler cryptoStreamHandler
 
+	recoveredPayloads chan []byte
 	receivedPackets  chan *receivedPacket
 	sendingScheduled chan struct{}
 
@@ -171,6 +174,9 @@ type session struct {
 	traceCallback func(quictrace.Event)
 
 	logger utils.Logger
+
+	fecFrameworkSender fec.FrameworkSender
+	fecFrameworkReceiver fec.FrameworkReceiver
 }
 
 var _ Session = &session{}
@@ -253,6 +259,10 @@ var newSession = func(
 	)
 	s.cryptoStreamManager = newCryptoStreamManager(cs, initialStream, handshakeStream, oneRTTStream)
 
+	s.fecFrameworkSender, err = fec_utils.CreateFrameworkSenderFromFECSchemeID(conf.FECSchemeID, conf.FECRedundancyController, conf.FECSymbolSize)
+	if err != nil {
+		return nil, err
+	}
 	if err := s.postSetup(); err != nil {
 		return nil, err
 	}
@@ -435,6 +445,11 @@ runLoop:
 		case <-s.sendingScheduled:
 			// We do all the interesting stuff after the switch statement, so
 			// nothing to see here.
+		case p := <-s.availableRecoveredPayloads():
+			err := s.handleRecoveredPayload(p)
+			if err != nil {
+				s.closeLocal(err)
+			}
 		case p := <-s.receivedPackets:
 			// Only reset the timers if this packet was actually processed.
 			// This avoids modifying any state when handling undecryptable packets,
@@ -501,6 +516,16 @@ func (s *session) earlySessionReady() <-chan struct{} {
 
 func (s *session) HandshakeComplete() context.Context {
 	return s.handshakeCtx
+}
+// a small hack to insert FEC inside the run() method without too much changing the code
+func (s *session) availableRecoveredPayloads() <- chan *fec.RecoveredPacket {
+	c := make(chan *fec.RecoveredPacket, 1)
+	if s.fecFrameworkReceiver != nil {
+		if payload := s.fecFrameworkReceiver.GetRecoveredPacket() ; payload != nil {
+			c <- payload
+		}
+	}
+	return c
 }
 
 func (s *session) Context() context.Context {
@@ -758,6 +783,54 @@ func (s *session) handleUnpackedPacket(packet *unpackedPacket, rcvTime time.Time
 	return nil
 }
 
+
+func (s *session) handleRecoveredPayload(pkt *fec.RecoveredPacket) error {
+	if pkt == nil || len(pkt.Payload) == 0 {
+		return qerr.Error(qerr.ProtocolViolation, "empty recovered pkt")
+	}
+
+
+	// Only used for tracing.
+	// If we're not tracing, this slice will always remain empty.
+	var frames []wire.Frame
+	var transportState *quictrace.TransportState
+	if s.traceCallback != nil {
+		transportState = s.sentPacketHandler.GetStats()
+	}
+	r := bytes.NewReader(pkt.Payload)
+	for {
+		// no packet can be recovered if we are not in 1RTT
+		frame, err := s.frameParser.ParseNext(r, protocol.Encryption1RTT)
+		if err != nil {
+			return err
+		}
+		if frame == nil {
+			break
+		}
+		if s.traceCallback != nil {
+			frames = append(frames, frame)
+		}
+		if err := s.handleFrame(frame, pkt.Number, protocol.Encryption1RTT); err != nil {
+			return err
+		}
+	}
+
+	if s.traceCallback != nil {
+		s.traceCallback(quictrace.Event{
+			Time:            time.Now(),
+			EventType:       quictrace.PacketRecovered,
+			TransportState:  transportState,
+			EncryptionLevel: protocol.Encryption1RTT,
+			PacketNumber:    pkt.Number,
+			PacketSize:      protocol.ByteCount(len(pkt.Payload)),
+			Frames:          frames,
+		})
+	}
+
+	// we don't set it as received, as it has been recovered
+	return nil
+}
+
 func (s *session) handleFrame(f wire.Frame, pn protocol.PacketNumber, encLevel protocol.EncryptionLevel) error {
 	var err error
 	wire.LogFrame(s.logger, f, false)
@@ -795,6 +868,10 @@ func (s *session) handleFrame(f wire.Frame, pn protocol.PacketNumber, encLevel p
 	case *wire.RetireConnectionIDFrame:
 		// since we don't send new connection IDs, we don't expect retirements
 		err = errors.New("unexpected RETIRE_CONNECTION_ID frame")
+	case *wire.RepairFrame:
+		if s.fecFrameworkReceiver != nil {
+			err = s.fecFrameworkReceiver.ReceiveRepairFrame(frame)
+		}
 	default:
 		err = fmt.Errorf("unexpected frame type: %s", reflect.ValueOf(&frame).Elem().Type().Name())
 	}
@@ -1058,6 +1135,11 @@ func (s *session) processTransportParameters(data []byte) {
 	// On the server side, the early session is ready as soon as we processed
 	// the client's transport parameters.
 	close(s.earlySessionReadyChan)
+	s.fecFrameworkReceiver, err = fec_utils.CreateFrameworkReceiverFromFECSchemeID(params.FECSchemeID, params.FECSymbolSize)
+	if err != nil {
+		s.closeLocal(err)
+		return
+	}
 }
 
 func (s *session) processTransportParametersForClient(data []byte) (*handshake.TransportParameters, error) {
