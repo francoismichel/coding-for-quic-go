@@ -3,6 +3,7 @@ package block
 import (
 	"errors"
 	"github.com/lucas-clemente/quic-go/internal/fec"
+	"github.com/lucas-clemente/quic-go/internal/protocol"
 )
 
 const SYNCHRONIZATION_BYTE_START_OF_PACKET = 0
@@ -34,7 +35,7 @@ func SourceSymbolToBlockSourceSymbol(symbol *fec.SourceSymbol) *BlockSourceSymbo
 	}
 }
 
-func PayloadToSourceSymbols(payload []byte, E uint16) ([]*BlockSourceSymbol, error) {
+func PayloadToSourceSymbols(payload []byte, E protocol.ByteCount) ([]*BlockSourceSymbol, error) {
 	packetChunkSize := int(E-1)
 	var retVal []*BlockSourceSymbol
 	if len(payload) % packetChunkSize != 0 {

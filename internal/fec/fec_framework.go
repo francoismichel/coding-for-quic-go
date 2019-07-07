@@ -9,16 +9,17 @@ import (
 
 type FrameworkSender interface {
 	// see coding-for-quic: e is the size of a source/repair symbol
-	E()	uint16
-	ProtectPayload(number protocol.PacketNumber, payload PreProcessedPayload) (retval protocol.FECPayloadID, err error)
-	GetNextFPID() protocol.FECPayloadID
+	E()	protocol.ByteCount
+	ProtectPayload(number protocol.PacketNumber, payload PreProcessedPayload) (retval protocol.SourceFECPayloadID, err error)
+	GetNextFPID() protocol.SourceFECPayloadID
 	FlushUnprotectedSymbols() error
+	GetRepairFrame(maxSize protocol.ByteCount) (*wire.RepairFrame, error)
 }
 
 type FrameworkReceiver interface {
-	E()	uint16
-	ReceivePayload(number protocol.PacketNumber, payload PreProcessedPayload, sourceID [4]byte) error
-	ReceiveRepairFrame(frame *wire.RepairFrame) error
+	E()	protocol.ByteCount
+	ReceivePayload(number protocol.PacketNumber, payload PreProcessedPayload, sourceID protocol.SourceFECPayloadID) error
+	HandleRepairFrame(frame *wire.RepairFrame) error
 	GetRecoveredPacket() *RecoveredPacket
 }
 
@@ -34,7 +35,7 @@ func (p *preProcessedPayload) Bytes() []byte {
 	return p.data
 }
 
-func preparePayloadForEncoding(pn protocol.PacketNumber, framesToMaybeProtect []wire.Frame, sender FrameworkSender, version protocol.VersionNumber) (PreProcessedPayload, error) {
+func PreparePayloadForEncoding(pn protocol.PacketNumber, framesToMaybeProtect []wire.Frame, sender FrameworkSender, version protocol.VersionNumber) (PreProcessedPayload, error) {
 	data, err := preprocessPayload(pn, framesToMaybeProtect, protocol.ByteCount(sender.E()), version)
 	if err != nil {
 		return nil, err
@@ -44,7 +45,7 @@ func preparePayloadForEncoding(pn protocol.PacketNumber, framesToMaybeProtect []
 	}, nil
 }
 
-func receivePayloadForDecoding(pn protocol.PacketNumber, framesToMaybeProtect []wire.Frame, receiver FrameworkReceiver, version protocol.VersionNumber) (PreProcessedPayload, error) {
+func ReceivePayloadForDecoding(pn protocol.PacketNumber, framesToMaybeProtect []wire.Frame, receiver FrameworkReceiver, version protocol.VersionNumber) (PreProcessedPayload, error) {
 	data, err := preprocessPayload(pn, framesToMaybeProtect, protocol.ByteCount(receiver.E()), version)
 	if err != nil {
 		return nil, err
@@ -78,6 +79,9 @@ func preprocessPayload(pn protocol.PacketNumber, framesToMaybeProtect []wire.Fra
 	payloadToProtect, err := writeProtectedFrames(framesToMaybeProtect, version)
 	if err != nil {
 		return nil, err
+	}
+	if len(payloadToProtect) == 0 {
+		return nil, nil
 	}
 	lenWithoutPadding := utils.VarIntLen(uint64(pn)) + protocol.ByteCount(len(payloadToProtect))
 	totalLen := lenWithoutPadding

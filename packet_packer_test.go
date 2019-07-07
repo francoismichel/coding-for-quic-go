@@ -88,6 +88,7 @@ var _ = Describe("Packet packer", func() {
 			ackFramer,
 			protocol.PerspectiveServer,
 			version,
+			nil,
 		)
 		packer.version = version
 		packer.maxPacketSize = maxPacketSize

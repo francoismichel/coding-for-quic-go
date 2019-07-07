@@ -10,7 +10,8 @@ import (
 )
 
 type frameParser struct {
-	ackDelayExponent uint8
+	ackDelayExponent  uint8
+	repairFrameParser RepairFrameParser
 
 	version protocol.VersionNumber
 }
@@ -84,8 +85,15 @@ func (p *frameParser) parseFrame(r *bytes.Reader, typeByte byte, encLevel protoc
 			frame, err = parsePathResponseFrame(r, p.version)
 		case 0x1c, 0x1d:
 			frame, err = parseConnectionCloseFrame(r, p.version)
+		case 0x21:
+			frame, err = parseFECSrcFPIFrame(r, p.version)
 		case 0x22:
-			frame, err = parseRepairFrame(r, p.version)
+			if p.repairFrameParser != nil {
+				frame, err = p.repairFrameParser.ParseRepairFrame(r)
+				break
+			}
+			// no repairFrameParser plugged, the frame cannot be parsed
+			fallthrough
 		default:
 			err = fmt.Errorf("unknown type byte 0x%x", typeByte)
 		}
@@ -114,4 +122,8 @@ func (p *frameParser) isAllowedAtEncLevel(f Frame, encLevel protocol.EncryptionL
 
 func (p *frameParser) SetAckDelayExponent(exp uint8) {
 	p.ackDelayExponent = exp
+}
+
+func (p *frameParser) SetRepairFrameParser(parser RepairFrameParser) {
+	p.repairFrameParser = parser
 }

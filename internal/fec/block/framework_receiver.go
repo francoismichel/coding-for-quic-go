@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/lucas-clemente/quic-go/internal/fec"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
-	"github.com/lucas-clemente/quic-go/internal/utils"
 	"github.com/lucas-clemente/quic-go/internal/wire"
 	"log"
 )
@@ -15,29 +14,35 @@ import (
 
 
 type BlockFrameworkReceiver struct {
-	e 											 uint16
+	e                        protocol.ByteCount
+	repairFrameParser        RepairFrameParser
 	fecBlocksBuffer          *fecBlocksBuffer
 	recoveredPacketsPayloads *recoveredPacketsBuffer
 	doRecovery               bool								// Debug parameter: if false, the recovered packets won't be used by the session, like if it has not been recovered
 	fecScheme                BlockFECScheme
 }
+var _ fec.FrameworkReceiver = &BlockFrameworkReceiver{}
 
-func NewBlockFrameworkReceiver(fecScheme BlockFECScheme, E uint16) *BlockFrameworkReceiver {
+func NewBlockFrameworkReceiver(fecScheme BlockFECScheme, repairFrameParser RepairFrameParser, E protocol.ByteCount) (*BlockFrameworkReceiver, error) {
+	if E >= protocol.MAX_FEC_SYMBOL_SIZE {
+		return nil, fmt.Errorf("framework sender symbol size too big: %d > %d", E, protocol.MAX_FEC_SYMBOL_SIZE)
+	}
 	buffer := newFecBlocksBuffer(200)
 	return &BlockFrameworkReceiver{
 		e: E,
-		fecBlocksBuffer: buffer,
+		repairFrameParser:				repairFrameParser,
+		fecBlocksBuffer: 					buffer,
 		recoveredPacketsPayloads: newRecoveredPacketsBuffer(100),
 		doRecovery:               true,
 		fecScheme:                fecScheme,
-	}
+	}, nil
 }
 
-func (f *BlockFrameworkReceiver) E() uint16 {
-	return f.E()
+func (f *BlockFrameworkReceiver) E() protocol.ByteCount {
+	return protocol.ByteCount(f.e)
 }
 
-func (f *BlockFrameworkReceiver) ReceivePayload(pn protocol.PacketNumber, payload fec.PreProcessedPayload, sourceID [4]byte) error {
+func (f *BlockFrameworkReceiver) ReceivePayload(pn protocol.PacketNumber, payload fec.PreProcessedPayload, sourceID protocol.SourceFECPayloadID) error {
 	if payload == nil || len(payload.Bytes()) == 0 {
 		return fmt.Errorf("receiver framework received an empty payload")
 	}
@@ -63,35 +68,24 @@ func (f *BlockFrameworkReceiver) ReceivePayload(pn protocol.PacketNumber, payloa
 	return nil
 }
 
-func (f *BlockFrameworkReceiver) ReceiveRepairFrame(frame *wire.RepairFrame) error {
-	r := bytes.NewReader(frame.Payload)
-	nss, err := utils.ReadVarInt(r)
+func (f *BlockFrameworkReceiver) HandleRepairFrame(frame *wire.RepairFrame) error {
+	r := bytes.NewReader(frame.Metadata)
+	nss, nrs, repairID, _, err := f.repairFrameParser.getRepairFrameMetadata(frame)
 	if err != nil {
 		return err
 	}
-	nrs, err := utils.ReadVarInt(r)
-	if err != nil {
-		return err
-	}
-	var id [8]byte
-	_, err = r.Read(id[:])
-	if err != nil {
-		return err
-	}
-	repairID, err := NewBlockRepairID(id)
-	if err != nil {
-		return err
-	}
-	lenRepairPayload := r.Len()
-	if lenRepairPayload % int(f.e) != 0 {
-		return fmt.Errorf("repair payload not aligned with e (len = %d, e = %d)", lenRepairPayload, f.e)
-	}
-	data := make([]byte, r.Len())
-	_, err = r.Read(data)
-	if err != nil {
-		return err
-	}
-	for i := 0 ; i < lenRepairPayload/int(f.e) ; i++ {
+	first := true
+	r = bytes.NewReader(frame.RepairSymbols)
+	for ; r.Len() > 0 ; {
+		if !first {
+			repairID.BlockSourceID, err = repairID.BlockSourceID.NextOffset()
+		}
+		first = false
+		data := make([]byte, f.E())
+		_, err = r.Read(data)
+		if err != nil {
+			return err
+		}
 		err = f.handleRepairSymbol(&BlockRepairSymbol{
 			BlockRepairID: repairID,
 			Data: data,
@@ -153,7 +147,7 @@ func (f *BlockFrameworkReceiver) updateStateForSomeBlock(blockNumber BlockNumber
 			delete(f.fecBlocksBuffer.fecBlocks, blockNumber)
 		}
 	}
-	if block.TotalNumberOfSourceSymbols > 0 && block.CurrentNumberOfSymbols() == block.TotalNumberOfSourceSymbols && len(block.RepairSymbols) == block.TotalNumberOfRepairSymbols{
+	if block.TotalNumberOfSourceSymbols > 0 && block.CurrentNumberOfSymbols() == block.TotalNumberOfSourceSymbols && uint64(len(block.RepairSymbols)) == block.TotalNumberOfRepairSymbols{
 		delete(f.fecBlocksBuffer.fecBlocks, blockNumber)
 	}
 	return nil
@@ -179,8 +173,8 @@ func (f *BlockFrameworkReceiver) handleRepairSymbol(symbol *BlockRepairSymbol, t
 		block = NewFECBlock(symbol.BlockNumber)
 		block.RepairSymbols = make([]*BlockRepairSymbol, totalNumberOfRepairSymbols)
 		f.fecBlocksBuffer.addFECBlock(block)
-		block.TotalNumberOfSourceSymbols = totalNumberOfSourceSymbols
-		block.TotalNumberOfRepairSymbols = totalNumberOfRepairSymbols
+		block.TotalNumberOfSourceSymbols = uint64(totalNumberOfSourceSymbols)
+		block.TotalNumberOfRepairSymbols = uint64(totalNumberOfRepairSymbols)
 	}
 	block.SetRepairSymbol(symbol)
 	if ok || totalNumberOfSourceSymbols == 1 {

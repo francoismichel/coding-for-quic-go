@@ -6,29 +6,38 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/fec/block"
 	"github.com/lucas-clemente/quic-go/internal/fec/block/fec_schemes"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"github.com/lucas-clemente/quic-go/internal/wire"
 )
 
-func CreateFrameworkSenderFromFECSchemeID(id protocol.FECSchemeID, controller fec.RedundancyController, symbolSize uint16) (fec.FrameworkSender, error) {
+func CreateFrameworkSenderFromFECSchemeID(id protocol.FECSchemeID, controller fec.RedundancyController, symbolSize protocol.ByteCount) (fec.FrameworkSender, wire.RepairFrameParser, error) {
 	switch id {
+	case protocol.FECDisabled:
+		return nil, nil, nil
 	case protocol.XORFECScheme:
 		if controller == nil {
 			controller = block.NewDefaultRedundancyController()
 		}
 		if blockController, ok := controller.(block.RedundancyController); !ok {
-			return nil, fmt.Errorf("wrong redundancy controller: expected a BlockRedundancyController")
+			return nil, nil, fmt.Errorf("wrong redundancy controller: expected a BlockRedundancyController")
 		} else {
-			return block.NewBlockFrameworkSender(&fec_schemes.XORFECScheme{}, blockController, symbolSize), nil
+			rfp := block.NewRepairFrameParser(symbolSize)
+			sender, err := block.NewBlockFrameworkSender(&fec_schemes.XORFECScheme{}, blockController, rfp, symbolSize)
+			return sender, rfp, err
 		}
 	default:
-		return nil, fmt.Errorf("invalid sender FECSchemeID: %d", id)
+		return nil, nil, fmt.Errorf("invalid sender FECSchemeID: %d", id)
 	}
 }
 
-func CreateFrameworkReceiverFromFECSchemeID(id protocol.FECSchemeID, symbolSize uint16) (fec.FrameworkReceiver, error) {
+func CreateFrameworkReceiverFromFECSchemeID(id protocol.FECSchemeID, symbolSize protocol.ByteCount) (fec.FrameworkReceiver, wire.RepairFrameParser, error) {
 	switch id {
+	case protocol.FECDisabled:
+		return nil, nil, nil
 	case protocol.XORFECScheme:
-		return block.NewBlockFrameworkReceiver(&fec_schemes.XORFECScheme{}, symbolSize), nil
+		rfp := block.NewRepairFrameParser(symbolSize)
+		receiver, err := block.NewBlockFrameworkReceiver(&fec_schemes.XORFECScheme{}, rfp, symbolSize)
+		return receiver, rfp, err
 	default:
-		return nil, fmt.Errorf("invalid receiver FECSchemeID: %d", id)
+		return nil, nil, fmt.Errorf("invalid receiver FECSchemeID: %d", id)
 	}
 }
