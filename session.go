@@ -169,7 +169,9 @@ type session struct {
 
 	logger utils.Logger
 
+	senderRepairFrameParser wire.RepairFrameParser
 	fecFrameworkSender fec.FrameworkSender
+	receiverRepairFrameParser wire.RepairFrameParser
 	fecFrameworkReceiver fec.FrameworkReceiver
 }
 
@@ -200,6 +202,11 @@ var newSession = func(
 		handshakeCompleteChan: make(chan struct{}),
 		logger:                logger,
 		version:               v,
+	}
+	var err error
+	s.fecFrameworkSender, s.senderRepairFrameParser, err = fec_utils.CreateFrameworkSenderFromFECSchemeID(s.config.FECSchemeID, s.config.FECRedundancyController, protocol.ByteCount(conf.FECSymbolSize))
+	if err != nil {
+		return nil, err
 	}
 	s.preSetup()
 	s.sentPacketHandler = ackhandler.NewSentPacketHandler(0, s.rttStats, s.traceCallback, s.logger)
@@ -248,13 +255,10 @@ var newSession = func(
 		s.receivedPacketHandler,
 		s.perspective,
 		s.version,
+		s.fecFrameworkSender,
 	)
 	s.cryptoStreamManager = newCryptoStreamManager(cs, initialStream, handshakeStream, oneRTTStream)
 
-	s.fecFrameworkSender, err = fec_utils.CreateFrameworkSenderFromFECSchemeID(conf.FECSchemeID, conf.FECRedundancyController, conf.FECSymbolSize)
-	if err != nil {
-		return nil, err
-	}
 	if err := s.postSetup(); err != nil {
 		return nil, err
 	}
@@ -287,6 +291,11 @@ var newClientSession = func(
 		logger:                logger,
 		initialVersion:        initialVersion,
 		version:               v,
+	}
+	var err error
+	s.fecFrameworkSender, s.senderRepairFrameParser, err = fec_utils.CreateFrameworkSenderFromFECSchemeID(s.config.FECSchemeID, s.config.FECRedundancyController, protocol.ByteCount(conf.FECSymbolSize))
+	if err != nil {
+		return nil, err
 	}
 	s.preSetup()
 	s.sentPacketHandler = ackhandler.NewSentPacketHandler(initialPacketNumber, s.rttStats, s.traceCallback, s.logger)
@@ -338,6 +347,7 @@ var newClientSession = func(
 		s.receivedPacketHandler,
 		s.perspective,
 		s.version,
+		s.fecFrameworkSender,
 	)
 	return s, s.postSetup()
 }
@@ -711,6 +721,8 @@ func (s *session) handleUnpackedPacket(packet *unpackedPacket, rcvTime time.Time
 		transportState = s.sentPacketHandler.GetStats()
 	}
 
+	containsSourceSymbol := false
+	var fpid protocol.SourceFECPayloadID
 	r := bytes.NewReader(packet.data)
 	var isAckEliciting bool
 	for {
@@ -724,11 +736,29 @@ func (s *session) handleUnpackedPacket(packet *unpackedPacket, rcvTime time.Time
 		if ackhandler.IsFrameAckEliciting(frame) {
 			isAckEliciting = true
 		}
-		if s.traceCallback != nil {
+		if s.traceCallback != nil || s.fecFrameworkReceiver != nil {
 			frames = append(frames, frame)
 		}
-		if err := s.handleFrame(frame, packet.packetNumber, packet.encryptionLevel); err != nil {
-			return err
+		switch f := frame.(type) {
+		case *wire.FECSrcFPIFrame:
+			if s.fecFrameworkReceiver != nil {
+				// we do this here because handleFrame looses the big picture of the packet payload
+				fpid = f.SourceFECPayloadID
+				containsSourceSymbol = true
+			}
+		default:
+			if err := s.handleFrame(frame, packet.packetNumber, packet.encryptionLevel); err != nil {
+				return err
+			}
+		}
+		if containsSourceSymbol && s.fecFrameworkReceiver != nil {
+			protectedPayload, err := fec.ReceivePayloadForDecoding(packet.packetNumber, frames, s.fecFrameworkReceiver, s.GetVersion())
+			if err != nil {
+				return err
+			}
+			if err = s.fecFrameworkReceiver.ReceivePayload(packet.packetNumber, protectedPayload, fpid); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -836,7 +866,7 @@ func (s *session) handleFrame(f wire.Frame, pn protocol.PacketNumber, encLevel p
 		err = errors.New("unexpected RETIRE_CONNECTION_ID frame")
 	case *wire.RepairFrame:
 		if s.fecFrameworkReceiver != nil {
-			err = s.fecFrameworkReceiver.ReceiveRepairFrame(frame)
+			err = s.fecFrameworkReceiver.HandleRepairFrame(frame)
 		}
 	default:
 		err = fmt.Errorf("unexpected frame type: %s", reflect.ValueOf(&frame).Elem().Type().Name())
@@ -1088,11 +1118,12 @@ func (s *session) processTransportParameters(data []byte) {
 	if params.StatelessResetToken != nil {
 		s.sessionRunner.AddResetToken(*params.StatelessResetToken, s)
 	}
-	s.fecFrameworkReceiver, err = fec_utils.CreateFrameworkReceiverFromFECSchemeID(params.FECSchemeID, params.FECSymbolSize)
+	s.fecFrameworkReceiver, s.receiverRepairFrameParser, err = fec_utils.CreateFrameworkReceiverFromFECSchemeID(params.FECSchemeID, protocol.ByteCount(params.FECSymbolSize))
 	if err != nil {
 		s.closeLocal(err)
 		return
 	}
+	s.frameParser.SetRepairFrameParser(s.receiverRepairFrameParser)
 }
 
 func (s *session) processTransportParametersForClient(data []byte) (*handshake.TransportParameters, error) {

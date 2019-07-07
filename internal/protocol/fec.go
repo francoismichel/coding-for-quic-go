@@ -1,16 +1,18 @@
 package protocol
 
-const REPAIR_FRAME_TYPE = 42
+const FEC_SRC_FPI_FRAME_TYPE = 0x21
+const REPAIR_FRAME_TYPE = 0x22
 
-type FECPayloadID	[8]byte
+type SourceFECPayloadID [4]byte
 
 const MAX_FEC_SYMBOL_SIZE = MaxPacketSizeIPv6
 
 type FECSchemeID byte
 
-const XORFECScheme FECSchemeID = 0
-const ReedSolomonFECScheme FECSchemeID = 1
-const RLCFECScheme FECSchemeID = 2
+const FECDisabled FECSchemeID = 0
+const XORFECScheme FECSchemeID = 1
+const ReedSolomonFECScheme FECSchemeID = 2
+const RLCFECScheme FECSchemeID = 3
 
 func (f FECSchemeID) String() string {
 	switch f {

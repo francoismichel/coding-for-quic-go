@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/lucas-clemente/quic-go/internal/fec"
 	"net"
 	"time"
 
@@ -133,6 +134,8 @@ type packetPacker struct {
 
 	maxPacketSize          protocol.ByteCount
 	numNonAckElicitingAcks int
+
+	fecFrameworkSender fec.FrameworkSender
 }
 
 var _ packer = &packetPacker{}
@@ -149,6 +152,7 @@ func newPacketPacker(
 	acks ackFrameSource,
 	perspective protocol.Perspective,
 	version protocol.VersionNumber,
+	fecFrameworkSender fec.FrameworkSender,
 ) *packetPacker {
 	return &packetPacker{
 		cryptoSetup:     cryptoSetup,
@@ -162,6 +166,7 @@ func newPacketPacker(
 		acks:            acks,
 		pnManager:       packetNumberManager,
 		maxPacketSize:   getMaxPacketSize(remoteAddr),
+		fecFrameworkSender: fecFrameworkSender,
 	}
 }
 
@@ -327,10 +332,28 @@ func (p *packetPacker) PackPacket() (*packedPacket, error) {
 	header := p.getShortHeader(sealer.KeyPhase())
 	headerLen := header.GetLength(p.version)
 
-	maxSize := p.maxPacketSize - protocol.ByteCount(sealer.Overhead()) - headerLen
+	var maxSize protocol.ByteCount
+	maxSize = p.maxPacketSize - protocol.ByteCount(sealer.Overhead()) - headerLen
 	payload, err := p.composeNextPacket(maxSize)
 	if err != nil {
 		return nil, err
+	}
+	if p.fecFrameworkSender != nil {
+		payloadToProtect, err := fec.PreparePayloadForEncoding(header.PacketNumber, payload.frames, p.fecFrameworkSender, p.version)
+		if err != nil {
+			return nil, err
+		}
+		// only protect if there are bytes to protect
+		if len(payloadToProtect.Bytes()) != 0 {
+			sfpid, err := p.fecFrameworkSender.ProtectPayload(header.PacketNumber, payloadToProtect)
+			if err != nil {
+				return nil, err
+			}
+			// add the id to the packet: we have the remaining space, as we decreased maxSize for this
+			payload.frames = append(payload.frames, &wire.FECSrcFPIFrame{
+				SourceFECPayloadID: sfpid,
+			})
+		}
 	}
 
 	// check if we have anything to send
@@ -412,6 +435,14 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount) (paylo
 	if ack := p.acks.GetAckFrame(protocol.Encryption1RTT); ack != nil {
 		payload.ack = ack
 		payload.length += ack.Length(p.version)
+	}
+
+	if p.fecFrameworkSender != nil {
+		rf, err := p.fecFrameworkSender.GetRepairFrame(maxFrameSize)
+		if err != nil {
+			return payload, err
+		}
+		payload.frames = append(payload.frames, rf)
 	}
 
 	frames, lengthAdded := p.framer.AppendControlFrames(payload.frames, maxFrameSize-payload.length)

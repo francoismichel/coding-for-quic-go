@@ -16,4 +16,5 @@ type Frame interface {
 type FrameParser interface {
 	ParseNext(*bytes.Reader, protocol.EncryptionLevel) (Frame, error)
 	SetAckDelayExponent(uint8)
+	SetRepairFrameParser(RepairFrameParser)
 }
