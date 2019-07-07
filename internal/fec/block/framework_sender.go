@@ -29,7 +29,7 @@ func NewBlockFrameworkSender(fecScheme BlockFECScheme, redundancyController Redu
 		fecScheme:            fecScheme,
 		redundancyController: redundancyController,
 		repairFrameParser:		repairFrameParser,
-		currentBlock:         &FECBlock{},
+		currentBlock:         NewFECBlock(0),
 		e:                    E,
 	}, nil
 }

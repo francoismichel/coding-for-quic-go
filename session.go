@@ -751,14 +751,14 @@ func (s *session) handleUnpackedPacket(packet *unpackedPacket, rcvTime time.Time
 				return err
 			}
 		}
-		if containsSourceSymbol && s.fecFrameworkReceiver != nil {
-			protectedPayload, err := fec.ReceivePayloadForDecoding(packet.packetNumber, frames, s.fecFrameworkReceiver, s.GetVersion())
-			if err != nil {
-				return err
-			}
-			if err = s.fecFrameworkReceiver.ReceivePayload(packet.packetNumber, protectedPayload, fpid); err != nil {
-				return err
-			}
+	}
+	if containsSourceSymbol && s.fecFrameworkReceiver != nil {
+		protectedPayload, err := fec.ReceivePayloadForDecoding(packet.packetNumber, frames, s.fecFrameworkReceiver, s.GetVersion())
+		if err != nil {
+			return err
+		}
+		if err = s.fecFrameworkReceiver.ReceivePayload(packet.packetNumber, protectedPayload, fpid); err != nil {
+			return err
 		}
 	}
 

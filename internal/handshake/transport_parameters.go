@@ -238,6 +238,8 @@ func (p *TransportParameters) Marshal() []byte {
 	p.marshalVarintParam(b, maxPacketSizeParameterID, uint64(protocol.MaxReceivePacketSize))
 	// fec_symbol_size
 	p.marshalVarintParam(b, fecSymbolSizeParameterID, uint64(p.FECSymbolSize))
+	// fec_scheme_id
+	p.marshalVarintParam(b, fecSchemeIDParameterID, uint64(p.FECSchemeID))
 	// max_ack_delay
 	// Only send it if is different from the default value.
 	if p.MaxAckDelay != protocol.DefaultMaxAckDelay {

@@ -333,7 +333,15 @@ func (p *packetPacker) PackPacket() (*packedPacket, error) {
 	headerLen := header.GetLength(p.version)
 
 	var maxSize protocol.ByteCount
+	var fpidFrame *wire.FECSrcFPIFrame
+
 	maxSize = p.maxPacketSize - protocol.ByteCount(sealer.Overhead()) - headerLen
+	if p.fecFrameworkSender != nil {
+		fpidFrame = &wire.FECSrcFPIFrame{
+			SourceFECPayloadID: p.fecFrameworkSender.GetNextFPID(),
+		}
+		maxSize -= fpidFrame.Length(p.version)
+	}
 	payload, err := p.composeNextPacket(maxSize)
 	if err != nil {
 		return nil, err
@@ -345,14 +353,17 @@ func (p *packetPacker) PackPacket() (*packedPacket, error) {
 		}
 		// only protect if there are bytes to protect
 		if len(payloadToProtect.Bytes()) != 0 {
-			sfpid, err := p.fecFrameworkSender.ProtectPayload(header.PacketNumber, payloadToProtect)
+			_, err := p.fecFrameworkSender.ProtectPayload(header.PacketNumber, payloadToProtect)
 			if err != nil {
 				return nil, err
 			}
-			// add the id to the packet: we have the remaining space, as we decreased maxSize for this
-			payload.frames = append(payload.frames, &wire.FECSrcFPIFrame{
-				SourceFECPayloadID: sfpid,
-			})
+			// add the id to the packet: we have the remaining space, as we decreased maxSize for this. We add it to the
+			// beginning of the packet to avoid interferences with stream frames without length
+			// currently not very efficient
+			newFrames := make([]wire.Frame, 0, len(payload.frames) + 1)
+			newFrames = append(newFrames, fpidFrame)
+			newFrames = append(newFrames, payload.frames...)
+			payload.frames = newFrames
 		}
 	}
 
@@ -442,7 +453,10 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount) (paylo
 		if err != nil {
 			return payload, err
 		}
-		payload.frames = append(payload.frames, rf)
+		if rf != nil {
+			payload.frames = append(payload.frames, rf)
+			payload.length += rf.Length(p.version)
+		}
 	}
 
 	frames, lengthAdded := p.framer.AppendControlFrames(payload.frames, maxFrameSize-payload.length)

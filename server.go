@@ -268,6 +268,10 @@ func populateServerConfig(config *Config) *Config {
 		connIDLen = protocol.DefaultConnectionIDLength
 	}
 
+	fecSymbolSize := config.FECSymbolSize
+	if fecSymbolSize == 0 {
+		fecSymbolSize = protocol.FEC_DEFAULT_SYMBOL_SIZE
+	}
 	return &Config{
 		Versions:                              versions,
 		HandshakeTimeout:                      handshakeTimeout,
@@ -281,6 +285,8 @@ func populateServerConfig(config *Config) *Config {
 		ConnectionIDLength:                    connIDLen,
 		StatelessResetKey:                     config.StatelessResetKey,
 		QuicTracer:                            config.QuicTracer,
+		FECSchemeID:													 config.FECSchemeID,
+		FECSymbolSize:												 fecSymbolSize,
 	}
 }
 
@@ -459,6 +465,8 @@ func (s *server) createNewSession(
 		DisableMigration:               true,
 		StatelessResetToken:            &token,
 		OriginalConnectionID:           origDestConnID,
+		FECSchemeID:										s.config.FECSchemeID,
+		FECSymbolSize:									s.config.FECSymbolSize,
 	}
 	sess, err := s.newSession(
 		&conn{pconn: s.conn, currentAddr: remoteAddr},
