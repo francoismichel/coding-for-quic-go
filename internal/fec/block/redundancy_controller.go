@@ -14,7 +14,8 @@ const DEFAULT_N = 6
 type RedundancyController interface {
 	fec.RedundancyController
 	// returns true if these symbols should be sent and protected with repair symbols
-	ShouldSend([]*BlockSourceSymbol) bool
+	// each element of the slide contains a slice of the symbols sent in a single packet
+	ShouldSend(nPacketsSinceLastRepair int) bool
 }
 
 type constantRedundancyController struct {
@@ -43,9 +44,9 @@ func (*constantRedundancyController) OnSourceSymbolLost(pn protocol.PacketNumber
 
 func (*constantRedundancyController) OnSourceSymbolReceived(pn protocol.PacketNumber) {}
 
-func (*constantRedundancyController) ShouldSend([]*BlockSourceSymbol) bool {
-	// TODO:
-	return true
+func (*constantRedundancyController) ShouldSend(nPacketsSinceLastRepair int) bool {
+	// protect when K packets have been sent
+	return nPacketsSinceLastRepair >= DEFAULT_K
 }
 
 func (c *constantRedundancyController) GetNumberOfRepairSymbols() uint {
