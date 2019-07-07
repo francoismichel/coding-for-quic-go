@@ -7,6 +7,8 @@ type SourceFECPayloadID [4]byte
 
 const MAX_FEC_SYMBOL_SIZE = MaxPacketSizeIPv6
 
+const FEC_DEFAULT_SYMBOL_SIZE = 200
+
 type FECSchemeID byte
 
 const FECDisabled FECSchemeID = 0

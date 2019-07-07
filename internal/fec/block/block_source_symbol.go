@@ -1,7 +1,7 @@
 package block
 
 import (
-	"errors"
+	"fmt"
 	"github.com/lucas-clemente/quic-go/internal/fec"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 )
@@ -39,7 +39,7 @@ func PayloadToSourceSymbols(payload []byte, E protocol.ByteCount) ([]*BlockSourc
 	packetChunkSize := int(E-1)
 	var retVal []*BlockSourceSymbol
 	if len(payload) % packetChunkSize != 0 {
-		return nil, errors.New("payload size is not aligned with e")
+		return nil, fmt.Errorf("payload size (%d) is not aligned with E (%d)", len(payload), E)
 	}
 	for i := 0 ; i < len(payload) / packetChunkSize ; i++ {
 		data := make([]byte, E)

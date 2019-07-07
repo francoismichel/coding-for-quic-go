@@ -241,6 +241,10 @@ func populateClientConfig(config *Config, createdPacketConn bool) *Config {
 		connIDLen = protocol.DefaultConnectionIDLength
 	}
 
+	fecSymbolSize := config.FECSymbolSize
+	if fecSymbolSize == 0 {
+		fecSymbolSize = protocol.FEC_DEFAULT_SYMBOL_SIZE
+	}
 	return &Config{
 		Versions:                              versions,
 		HandshakeTimeout:                      handshakeTimeout,
@@ -254,6 +258,8 @@ func populateClientConfig(config *Config, createdPacketConn bool) *Config {
 		StatelessResetKey:                     config.StatelessResetKey,
 		QuicTracer:                            config.QuicTracer,
 		TokenStore:                            config.TokenStore,
+		FECSchemeID:													 config.FECSchemeID,
+		FECSymbolSize:												 fecSymbolSize,
 	}
 }
 
@@ -368,6 +374,8 @@ func (c *client) createNewTLSSession(version protocol.VersionNumber) error {
 		MaxAckDelay:                    protocol.MaxAckDelayInclGranularity,
 		AckDelayExponent:               protocol.AckDelayExponent,
 		DisableMigration:               true,
+		FECSchemeID:										c.config.FECSchemeID,
+		FECSymbolSize:									c.config.FECSymbolSize,
 	}
 
 	c.mutex.Lock()
