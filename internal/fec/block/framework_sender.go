@@ -16,6 +16,7 @@ type BlockFrameworkSender struct {
 	repairFrameParser    RepairFrameParser
 	currentBlock         *FECBlock
 	e                    protocol.ByteCount
+	nProtectedPacketsSinceLastRepair int
 
 	BlocksToSend []*FECBlock
 }
@@ -69,7 +70,8 @@ func (f *BlockFrameworkSender) ProtectPayload(pn protocol.PacketNumber, payload 
 		}
 	}
 
-	if f.redundancyController.ShouldSend(f.currentBlock.SourceSymbols) {
+	f.nProtectedPacketsSinceLastRepair++
+	if f.redundancyController.ShouldSend(f.nProtectedPacketsSinceLastRepair) {
 		err := f.GenerateRepairSymbols(f.currentBlock, f.redundancyController.GetNumberOfRepairSymbols())
 		if err != nil {
 			return retval, err
@@ -87,6 +89,7 @@ func (f *BlockFrameworkSender) sendCurrentBlock() {
 		BlockNumber:          f.currentBlock.BlockNumber + 1,
 		sourceSymbolsOffsets: make(map[BlockSourceID]BlockOffset),
 	}
+	f.nProtectedPacketsSinceLastRepair = 0
 }
 
 
