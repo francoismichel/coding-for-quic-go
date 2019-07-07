@@ -183,6 +183,12 @@ func (f *FECBlock) SetSourceSymbol(ss *BlockSourceSymbol, id BlockSourceID) {
 
 // pre: the BlockOffset of symbol must be smaller than the length of f.RepairSymbols
 func (f *FECBlock) SetRepairSymbol(symbol *BlockRepairSymbol) {
+	if symbol.BlockOffset >= BlockOffset(len(f.RepairSymbols)) {
+		delta := symbol.BlockOffset - BlockOffset(len(f.RepairSymbols))
+		for i := BlockOffset(0) ; i <= delta ; i++ {
+			f.RepairSymbols = append(f.RepairSymbols, nil)
+		}
+	}
 	f.RepairSymbols[symbol.BlockOffset] = symbol
 }
 
