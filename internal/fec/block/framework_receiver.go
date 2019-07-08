@@ -50,7 +50,7 @@ func (f *BlockFrameworkReceiver) ReceivePayload(pn protocol.PacketNumber, payloa
 	if err != nil {
 		return err
 	}
-	symbols, err := PayloadToSourceSymbols(payload.Bytes(), f.e)
+	symbols, err := PayloadToSourceSymbols(payload.Bytes(), f.e, true)
 	if err != nil {
 		return err
 	}

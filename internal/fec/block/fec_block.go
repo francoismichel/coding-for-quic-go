@@ -30,32 +30,36 @@ type BlockRepairSymbol struct {
 func MergeSymbolsToPacketPayloads(symbols []*BlockSourceSymbol, recoveredSymbols []BlockOffset) ([]*fec.RecoveredPacket, error) {
 	var retVal []*fec.RecoveredPacket
 	var currentPacket []byte
+	var pn protocol.PacketNumber
 	currentPacketIsOfInterest := false
 	for i, symbol := range symbols {
 		if symbol != nil {
 			if !(len(currentPacket) == 0 && !symbol.SynchronizationByte.IsStartOfPacket()) &&
 				!(symbol.SynchronizationByte.IsStartOfPacket() && len(currentPacket) > 1) {
+				chunk := symbol.PacketChunk
+				if symbol.SynchronizationByte.IsPacketNumberPresent() {
+					r := bytes.NewReader(chunk)
+					pn64, err := utils.ReadVarInt(r)
+					if err != nil {
+						return retVal, err
+					}
+					pn = protocol.PacketNumber(pn64)
+					chunk = chunk[utils.VarIntLen(pn64):]
+				} else if symbol.SynchronizationByte.IsStartOfPacket() {
+					return nil, fmt.Errorf("block framework: the first source symbol does not indicate the packet number")
+				}
 				if len(recoveredSymbols) > 0 && BlockOffset(i) == recoveredSymbols[0] {
 					currentPacketIsOfInterest = true
 					recoveredSymbols = recoveredSymbols[1:]
 				}
-				if symbol.SynchronizationByte.IsStartOfPacket() {
-				}
-				if symbol.SynchronizationByte.IsEndOfPacket() {
-				}
-				currentPacket = append(currentPacket, symbol.PacketChunk...)
+				currentPacket = append(currentPacket, chunk...)
 				if symbol.SynchronizationByte.IsEndOfPacket() {
 					if currentPacketIsOfInterest {
 						// add the packet only if it was not available before
-						r := bytes.NewReader(currentPacket)
 						// we assume the pn is encoded as a VarInt at the start of the payload
-						pn, err := utils.ReadVarInt(r)
-						if err != nil {
-							return retVal, nil
-						}
 						retVal = append(retVal, &fec.RecoveredPacket{
-							Number:	protocol.PacketNumber(pn),
-							Payload: currentPacket[utils.VarIntLen(pn):],
+							Number:	pn,
+							Payload: currentPacket,
 						})
 					}
 					currentPacket = nil
