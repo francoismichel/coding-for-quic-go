@@ -293,7 +293,7 @@ func (p *packetPacker) PackPacket() (*packedPacket, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.fecFrameworkSender != nil {
+	if p.fecFrameworkSender != nil && fpidFrame != nil {
 		wireFrames := make([]wire.Frame, len(payload.frames))
 		for i, f := range payload.frames {
 			wireFrames[i] = f.Frame
@@ -304,15 +304,19 @@ func (p *packetPacker) PackPacket() (*packedPacket, error) {
 		}
 		// only protect if there are bytes to protect
 		if len(payloadToProtect.Bytes()) != 0 {
-			_, err := p.fecFrameworkSender.ProtectPayload(header.PacketNumber, payloadToProtect)
+			id, err := p.fecFrameworkSender.ProtectPayload(header.PacketNumber, payloadToProtect)
 			if err != nil {
 				return nil, err
+			}
+			if id != fpidFrame.SourceFECPayloadID {
+				panic(fmt.Sprintf("wrong id: %+v vs %+v", id, fpidFrame.SourceFECPayloadID))
 			}
 			// add the id to the packet: we have the remaining space, as we decreased maxSize for this. We add it to the
 			// beginning of the packet to avoid interferences with stream frames without length
 			// currently not very efficient
 			newFrames := make([]ackhandler.Frame, 0, len(payload.frames) + 1)
 			newFrames = append(newFrames, ackhandler.Frame{Frame: fpidFrame})
+			payload.length += fpidFrame.Length(p.version)
 			newFrames = append(newFrames, payload.frames...)
 			payload.frames = newFrames
 		}

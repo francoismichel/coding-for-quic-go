@@ -3,6 +3,7 @@ package block
 import (
 	"github.com/lucas-clemente/quic-go/internal/fec"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
+	"math"
 )
 
 const DEFAULT_K = 5
@@ -49,6 +50,6 @@ func (*constantRedundancyController) ShouldSend(nPacketsSinceLastRepair int) boo
 	return nPacketsSinceLastRepair >= DEFAULT_K
 }
 
-func (c *constantRedundancyController) GetNumberOfRepairSymbols() uint {
-	return c.nRepairSymbols
+func (c *constantRedundancyController) GetNumberOfRepairSymbols(nSymbolsSinceLastRepair int) uint {
+	return uint(math.Round((float64(DEFAULT_N - DEFAULT_K)/float64(DEFAULT_N))*float64(nSymbolsSinceLastRepair)))+1
 }

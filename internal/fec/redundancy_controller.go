@@ -10,7 +10,8 @@ type RedundancyController interface {
 	// is called whenever a packet is received
 	OnSourceSymbolReceived(protocol.PacketNumber)
 	// returns the maximum number of repair symbols that should be generated in a row
-	GetNumberOfRepairSymbols() uint
+	// the argument is an int that represents the number of source symbols sent since the last FEC protection
+	GetNumberOfRepairSymbols(int) uint
 }
 
 

@@ -57,7 +57,7 @@ func ReceivePayloadForDecoding(pn protocol.PacketNumber, framesToMaybeProtect []
 
 func shouldProtect(f wire.Frame) bool {
 	switch f.(type) {
-	case *wire.AckFrame, *wire.RepairFrame, *wire.FECSrcFPIFrame:
+	case *wire.AckFrame, *wire.RepairFrame, *wire.FECSrcFPIFrame, *wire.CryptoFrame:
 		return false
 	}
 	return true
@@ -90,16 +90,16 @@ func preprocessPayload(pn protocol.PacketNumber, framesToMaybeProtect []wire.Fra
 		// align the length with packetChunkSize
 		totalLen = (totalLen /packetChunkSize + 1) * packetChunkSize
 	}
-	payload := make([]byte, totalLen)
 	// start writing after the padding
-	b := bytes.NewBuffer(payload)
+	b := bytes.NewBuffer(nil)
 	utils.WriteVarInt(b, uint64(pn))
 	// We leave this space full of zeroes: these are PADDING frames
-	b.Next(int(totalLen - lenWithoutPadding))
+	b.Write(bytes.Repeat([]byte{0}, int(totalLen - lenWithoutPadding)))
+	//b.Next(int(totalLen - lenWithoutPadding))
 	b.Write(payloadToProtect)
 	// now, the payload is aligned with packetChunkSize(). It contains padding frames, then the full packet number as a VarInt, then the
 	// payload to protect
-	return payload, nil
+	return b.Bytes(), nil
 }
 
 type RecoveredPacket struct {
