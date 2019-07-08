@@ -11,12 +11,13 @@ import (
 // TODO: E should be > 2
 
 type BlockFrameworkSender struct {
-	fecScheme            BlockFECScheme
-	redundancyController RedundancyController
-	repairFrameParser    RepairFrameParser
-	currentBlock         *FECBlock
-	e                    protocol.ByteCount
-	nProtectedPacketsSinceLastRepair int
+	fecScheme                       BlockFECScheme
+	redundancyController            RedundancyController
+	repairFrameParser               RepairFrameParser
+	currentBlock                    *FECBlock
+	e                               protocol.ByteCount
+	protectedPacketsSinceLastRepair []int
+	nSourceSymbolsSinceLastRepair   int
 
 	BlocksToSend []*FECBlock
 }
@@ -48,8 +49,9 @@ func (f *BlockFrameworkSender) GetNextFPID() protocol.SourceFECPayloadID {
 }
 
 func (f *BlockFrameworkSender) protectSourceSymbol(symbol *BlockSourceSymbol) (retval protocol.SourceFECPayloadID) {
-	buf := bytes.NewBuffer(retval[:])
+	buf := bytes.NewBuffer(nil)
 	f.currentBlock.AddSourceSymbol(symbol).EncodeBlockSourceID(buf)
+	copy(retval[:], buf.Bytes())
 	return retval
 }
 
@@ -70,9 +72,10 @@ func (f *BlockFrameworkSender) ProtectPayload(pn protocol.PacketNumber, payload 
 		}
 	}
 
-	f.nProtectedPacketsSinceLastRepair++
-	if f.redundancyController.ShouldSend(f.nProtectedPacketsSinceLastRepair) {
-		err := f.GenerateRepairSymbols(f.currentBlock, f.redundancyController.GetNumberOfRepairSymbols())
+	f.protectedPacketsSinceLastRepair = append(f.protectedPacketsSinceLastRepair, len(symbols))
+	f.nSourceSymbolsSinceLastRepair += len(symbols)
+	if f.redundancyController.ShouldSend(len(f.protectedPacketsSinceLastRepair)) {
+		err := f.GenerateRepairSymbols(f.currentBlock, f.redundancyController.GetNumberOfRepairSymbols(f.nSourceSymbolsSinceLastRepair))
 		if err != nil {
 			return retval, err
 		}
@@ -85,16 +88,15 @@ func (f *BlockFrameworkSender) sendCurrentBlock() {
 	f.currentBlock.TotalNumberOfSourceSymbols = uint64(len(f.currentBlock.SourceSymbols))
 	f.currentBlock.TotalNumberOfRepairSymbols = uint64(len(f.currentBlock.RepairSymbols))
 	f.BlocksToSend = append(f.BlocksToSend, f.currentBlock)
-	f.currentBlock = &FECBlock{
-		BlockNumber:          f.currentBlock.BlockNumber + 1,
-		sourceSymbolsOffsets: make(map[BlockSourceID]BlockOffset),
-	}
-	f.nProtectedPacketsSinceLastRepair = 0
+
+	f.currentBlock = NewFECBlock(f.currentBlock.BlockNumber + 1)
+	f.protectedPacketsSinceLastRepair = f.protectedPacketsSinceLastRepair[:0]
+	f.nSourceSymbolsSinceLastRepair = 0
 }
 
 
 func (f *BlockFrameworkSender) FlushUnprotectedSymbols() error {
-	err := f.GenerateRepairSymbols(f.currentBlock, f.redundancyController.GetNumberOfRepairSymbols())
+	err := f.GenerateRepairSymbols(f.currentBlock, f.redundancyController.GetNumberOfRepairSymbols(f.nSourceSymbolsSinceLastRepair))
 	if err != nil {
 		return err
 	}

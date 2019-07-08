@@ -276,8 +276,14 @@ func (p *packetPacker) PackRetransmission(packet *ackhandler.Packet) ([]*packedP
 			if length+frameLen > maxSize {
 				break
 			}
-			length += frameLen
-			frames = append(frames, frame)
+			switch frame.(type) {
+			case *wire.RepairFrame, *wire.FECSrcFPIFrame:
+				// these frames should not be retransmitted
+				break
+			default:
+				length += frameLen
+				frames = append(frames, frame)
+			}
 			controlFrames = controlFrames[1:]
 		}
 
@@ -299,14 +305,16 @@ func (p *packetPacker) PackRetransmission(packet *ackhandler.Packet) ([]*packedP
 			length += frameToAdd.Length(p.version)
 			frames = append(frames, frameToAdd)
 		}
-		if sf, ok := frames[len(frames)-1].(*wire.StreamFrame); ok {
-			sf.DataLenPresent = false
+		if len(frames) > 0 {
+			if sf, ok := frames[len(frames)-1].(*wire.StreamFrame); ok {
+				sf.DataLenPresent = false
+			}
+			p, err := p.writeAndSealPacket(hdr, payload{frames: frames, length: length}, packet.EncryptionLevel, sealer)
+			if err != nil {
+				return nil, err
+			}
+			packets = append(packets, p)
 		}
-		p, err := p.writeAndSealPacket(hdr, payload{frames: frames, length: length}, packet.EncryptionLevel, sealer)
-		if err != nil {
-			return nil, err
-		}
-		packets = append(packets, p)
 	}
 	return packets, nil
 }
@@ -346,22 +354,26 @@ func (p *packetPacker) PackPacket() (*packedPacket, error) {
 	if err != nil {
 		return nil, err
 	}
-	if p.fecFrameworkSender != nil {
+	if p.fecFrameworkSender != nil && fpidFrame != nil {
 		payloadToProtect, err := fec.PreparePayloadForEncoding(header.PacketNumber, payload.frames, p.fecFrameworkSender, p.version)
 		if err != nil {
 			return nil, err
 		}
 		// only protect if there are bytes to protect
 		if len(payloadToProtect.Bytes()) != 0 {
-			_, err := p.fecFrameworkSender.ProtectPayload(header.PacketNumber, payloadToProtect)
+			id, err := p.fecFrameworkSender.ProtectPayload(header.PacketNumber, payloadToProtect)
 			if err != nil {
 				return nil, err
+			}
+			if id != fpidFrame.SourceFECPayloadID {
+				panic(fmt.Sprintf("wrong id: %+v vs %+v", id, fpidFrame.SourceFECPayloadID))
 			}
 			// add the id to the packet: we have the remaining space, as we decreased maxSize for this. We add it to the
 			// beginning of the packet to avoid interferences with stream frames without length
 			// currently not very efficient
 			newFrames := make([]wire.Frame, 0, len(payload.frames) + 1)
 			newFrames = append(newFrames, fpidFrame)
+			payload.length += fpidFrame.Length(p.version)
 			newFrames = append(newFrames, payload.frames...)
 			payload.frames = newFrames
 		}
@@ -464,7 +476,7 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount) (paylo
 
 	frames, lengthAdded = p.framer.AppendStreamFrames(frames, maxFrameSize-payload.length)
 	if len(frames) > 0 {
-		payload.frames = append(payload.frames, frames...)
+		payload.frames = frames
 		payload.length += lengthAdded
 	}
 	return payload, nil

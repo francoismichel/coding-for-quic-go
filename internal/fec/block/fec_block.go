@@ -23,32 +23,49 @@ type BlockRepairSymbol struct {
 }
 
 // pre: contiguous source symbols in the array symbols must be source symbols that have been sent contiguously one after the other
+// pre: previouslyLostSymbols must be sorted in increasing order
 // when an entry is nil in symbols, this means that one or more non-received symbols should be placed at this place in the array if they were received
-func MergeSymbolsToPacketPayloads(symbols []*BlockSourceSymbol) ([]*fec.RecoveredPacket, error) {
+// post: returns a slice containing the packets that have been recovered (the packets whose no symbol was in the recoveredSymbols)
+// are not present in the slice
+func MergeSymbolsToPacketPayloads(symbols []*BlockSourceSymbol, recoveredSymbols []BlockOffset) ([]*fec.RecoveredPacket, error) {
 	var retVal []*fec.RecoveredPacket
 	var currentPacket []byte
-	for _, symbol := range symbols {
+	currentPacketIsOfInterest := false
+	for i, symbol := range symbols {
 		if symbol != nil {
-			if !(len(currentPacket) == 0 && symbol.SynchronizationByte != SYNCHRONIZATION_BYTE_START_OF_PACKET) &&
-				!(symbol.SynchronizationByte == SYNCHRONIZATION_BYTE_START_OF_PACKET && len(currentPacket) > 0){
+			if !(len(currentPacket) == 0 && !symbol.SynchronizationByte.IsStartOfPacket()) &&
+				!(symbol.SynchronizationByte.IsStartOfPacket() && len(currentPacket) > 1) {
+				if len(recoveredSymbols) > 0 && BlockOffset(i) == recoveredSymbols[0] {
+					currentPacketIsOfInterest = true
+					recoveredSymbols = recoveredSymbols[1:]
+				}
+				if symbol.SynchronizationByte.IsStartOfPacket() {
+				}
+				if symbol.SynchronizationByte.IsEndOfPacket() {
+				}
 				currentPacket = append(currentPacket, symbol.PacketChunk...)
-				if symbol.SynchronizationByte == SYNCHRONIZATION_BYTE_END_OF_PACKET {
-					r := bytes.NewReader(currentPacket)
-					// we assume the pn is encoded as a VarInt at the start of the payload
-					pn, err := utils.ReadVarInt(r)
-					if err != nil {
-						return retVal, nil
+				if symbol.SynchronizationByte.IsEndOfPacket() {
+					if currentPacketIsOfInterest {
+						// add the packet only if it was not available before
+						r := bytes.NewReader(currentPacket)
+						// we assume the pn is encoded as a VarInt at the start of the payload
+						pn, err := utils.ReadVarInt(r)
+						if err != nil {
+							return retVal, nil
+						}
+						retVal = append(retVal, &fec.RecoveredPacket{
+							Number:	protocol.PacketNumber(pn),
+							Payload: currentPacket[utils.VarIntLen(pn):],
+						})
 					}
-					retVal = append(retVal, &fec.RecoveredPacket{
-						Number:	protocol.PacketNumber(pn),
-						Payload: currentPacket[utils.VarIntLen(pn):],
-					})
 					currentPacket = nil
+					currentPacketIsOfInterest = false
 				}
 			}
 		} else {
 			// we found a nil symbol, forget about the current packet
-			currentPacket = currentPacket[0:0]
+			currentPacket = nil
+			currentPacketIsOfInterest = false
 		}
 	}
 	return retVal, nil
@@ -87,8 +104,9 @@ func (b BlockSourceID) EncodeBlockSourceID(buffer *bytes.Buffer) {
 }
 
 func (b BlockSourceID) ToFPID() (retval protocol.SourceFECPayloadID) {
-	buf := bytes.NewBuffer(retval[:])
+	buf := bytes.NewBuffer(nil)
 	b.EncodeBlockSourceID(buf)
+	copy(retval[:], buf.Bytes())
 	return retval
 }
 
@@ -146,6 +164,7 @@ type FECBlock struct {
 	RepairSymbols              []*BlockRepairSymbol
 	SourceSymbols              []*BlockSourceSymbol
 	sourceSymbolsOffsets       map[BlockSourceID]BlockOffset
+	repairSymbolsOffsets       map[BlockRepairID]BlockOffset
 	TotalNumberOfSourceSymbols uint64
 	TotalNumberOfRepairSymbols uint64
 }
@@ -155,14 +174,14 @@ func NewFECBlock(blockNumber BlockNumber) *FECBlock {
 	return &FECBlock{
 		BlockNumber:          blockNumber,
 		sourceSymbolsOffsets: make(map[BlockSourceID]BlockOffset),
-		SourceSymbols:        make([]*BlockSourceSymbol, 0),
+		repairSymbolsOffsets: make(map[BlockRepairID]BlockOffset),
 	}
 }
 
 func (f *FECBlock) AddSourceSymbol(ss *BlockSourceSymbol) BlockSourceID {
 	id := BlockSourceID{
 		BlockNumber: f.BlockNumber,
-		BlockOffset: BlockOffset(len(f.SourceSymbols)),
+		BlockOffset: BlockOffset(len(f.sourceSymbolsOffsets)),
 	}
 	f.SourceSymbols = append(f.SourceSymbols, ss)
 	f.sourceSymbolsOffsets[id] = id.BlockOffset
@@ -190,10 +209,19 @@ func (f *FECBlock) SetRepairSymbol(symbol *BlockRepairSymbol) {
 		}
 	}
 	f.RepairSymbols[symbol.BlockOffset] = symbol
+	f.repairSymbolsOffsets[symbol.BlockRepairID] = symbol.BlockOffset
 }
 
 func (f *FECBlock) AddRepairSymbol(symbol *BlockRepairSymbol) {
 	f.RepairSymbols = append(f.RepairSymbols, symbol)
+	id := BlockRepairID{
+		FECSchemeSpecific: FECSchemeSpecific{},
+		BlockSourceID: BlockSourceID{
+			BlockNumber: f.BlockNumber,
+			BlockOffset: BlockOffset(len(f.RepairSymbols)),
+		},
+	}
+	f.repairSymbolsOffsets[id] = id.BlockOffset
 }
 
 func (f *FECBlock) HasID(id BlockSourceID) bool {
@@ -204,16 +232,27 @@ func (f *FECBlock) HasID(id BlockSourceID) bool {
 func (f *FECBlock) GetSymbolOffset(id BlockSourceID) BlockOffset {
 	return f.sourceSymbolsOffsets[id]
 }
-func (f *FECBlock) CurrentNumberOfSymbols() uint64 {
+
+func (f *FECBlock) CurrentNumberOfSourceSymbols() uint64 {
 	return uint64(len(f.sourceSymbolsOffsets))
 }
 
-func (f *FECBlock) GetRepairSymbols() []*BlockRepairSymbol {
-	return f.RepairSymbols
+func (f *FECBlock) CurrentNumberOfRepairSymbols() uint64 {
+	return uint64(len(f.repairSymbolsOffsets))
 }
 
 func (f *FECBlock) SetRepairSymbols(symbols []*BlockRepairSymbol) {
-	f.RepairSymbols = symbols
+	for _, symbol := range symbols {
+		f.SetRepairSymbol(symbol)
+	}
+}
+
+func (f *FECBlock) GetRepairSymbols() []*BlockRepairSymbol {
+	retVal := make([]*BlockRepairSymbol, len(f.RepairSymbols))
+	for _, idx := range f.repairSymbolsOffsets {
+		retVal[idx] = f.RepairSymbols[idx]
+	}
+	return retVal
 }
 
 func (f *FECBlock) GetSourceSymbols() []*BlockSourceSymbol {

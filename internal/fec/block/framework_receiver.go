@@ -56,7 +56,7 @@ func (f *BlockFrameworkReceiver) ReceivePayload(pn protocol.PacketNumber, payloa
 	}
 	currentSourceID := baseSourceID
 	for _, symbol := range symbols {
-		err := f.handleBlockSourceSymbol(symbol, baseSourceID)
+		err := f.handleBlockSourceSymbol(symbol, currentSourceID)
 		if err != nil {
 			return err
 		}
@@ -127,7 +127,23 @@ func (f *BlockFrameworkReceiver) updateStateForSomeBlock(blockNumber BlockNumber
 	if len(block.RepairSymbols) == 0 {
 		return nil
 	}
+	if int(block.TotalNumberOfSourceSymbols) > len(block.SourceSymbols) {
+		for i := len(block.SourceSymbols) ; i < int(block.TotalNumberOfSourceSymbols) ; i++ {
+			block.SourceSymbols = append(block.SourceSymbols, nil)
+		}
+	}
+	if int(block.TotalNumberOfRepairSymbols) > len(block.RepairSymbols) {
+		for i := len(block.SourceSymbols) ; i < int(block.TotalNumberOfRepairSymbols) ; i++ {
+			block.RepairSymbols = append(block.RepairSymbols, nil)
+		}
+	}
 	if f.fecScheme.CanRecoverSymbols(block) {
+		recoveredIdx := make([]BlockOffset, 0, block.TotalNumberOfRepairSymbols)
+		for i, s := range block.SourceSymbols {
+			if s == nil {
+				recoveredIdx = append(recoveredIdx, BlockOffset(i))
+			}
+		}
 		recoveredSymbols, err := f.fecScheme.RecoverSymbols(block)
 		if err != nil {
 			return err
@@ -136,7 +152,7 @@ func (f *BlockFrameworkReceiver) updateStateForSomeBlock(blockNumber BlockNumber
 			return errors.New("the fec scheme hasn't recovered any symbol although it indicated that it could")
 		}
 		if len(recoveredSymbols) > 0 {
-			recoveredPackets, err := MergeSymbolsToPacketPayloads(block.SourceSymbols)
+			recoveredPackets, err := MergeSymbolsToPacketPayloads(block.SourceSymbols, recoveredIdx)
 			if err != nil {
 				return err
 			}
@@ -147,7 +163,7 @@ func (f *BlockFrameworkReceiver) updateStateForSomeBlock(blockNumber BlockNumber
 			delete(f.fecBlocksBuffer.fecBlocks, blockNumber)
 		}
 	}
-	if block.TotalNumberOfSourceSymbols > 0 && block.CurrentNumberOfSymbols() == block.TotalNumberOfSourceSymbols && uint64(len(block.RepairSymbols)) == block.TotalNumberOfRepairSymbols{
+	if block.TotalNumberOfSourceSymbols > 0 && block.CurrentNumberOfSourceSymbols() == block.TotalNumberOfSourceSymbols && uint64(len(block.RepairSymbols)) == block.TotalNumberOfRepairSymbols{
 		delete(f.fecBlocksBuffer.fecBlocks, blockNumber)
 	}
 	return nil
@@ -173,9 +189,9 @@ func (f *BlockFrameworkReceiver) handleRepairSymbol(symbol *BlockRepairSymbol, t
 		block = NewFECBlock(symbol.BlockNumber)
 		block.RepairSymbols = make([]*BlockRepairSymbol, totalNumberOfRepairSymbols)
 		f.fecBlocksBuffer.addFECBlock(block)
-		block.TotalNumberOfSourceSymbols = uint64(totalNumberOfSourceSymbols)
-		block.TotalNumberOfRepairSymbols = uint64(totalNumberOfRepairSymbols)
 	}
+	block.TotalNumberOfSourceSymbols = uint64(totalNumberOfSourceSymbols)
+	block.TotalNumberOfRepairSymbols = uint64(totalNumberOfRepairSymbols)
 	block.SetRepairSymbol(symbol)
 	if ok || totalNumberOfSourceSymbols == 1 {
 		// recover packet if possible, remove useless buffers

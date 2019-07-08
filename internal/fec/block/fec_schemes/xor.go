@@ -19,21 +19,26 @@ var XORFECSchemeCannotGetRepairSymbol = errors.New("XORFECScheme: cannot get rep
 var XORFECSchemeTooMuchSymbolsNeeded = errors.New("XORFECScheme: cannot generate enough repair symbols")
 
 func (f *XORFECScheme) CanRecoverSymbols(block *FECBlock) bool {
-	return block.CurrentNumberOfSymbols() == block.TotalNumberOfSourceSymbols-1 && len(block.RepairSymbols) == 1
+	return block.CurrentNumberOfSourceSymbols() == block.TotalNumberOfSourceSymbols-1 && block.CurrentNumberOfRepairSymbols() == 1
 }
 
 func (f *XORFECScheme) RecoverSymbols(block *FECBlock) ([]*BlockSourceSymbol, error) {
 	if !f.CanRecoverSymbols(block) {
 		return nil, XORFECSchemeCannotRecoverPacket
 	}
+	missing := 0
 	current := block.RepairSymbols[0].Data
-	for _, p := range block.GetSourceSymbols() {
+	for i, p := range block.GetSourceSymbols() {
 		if p != nil {
 			current = f.XOR(current, p.Data)
+		} else {
+			missing = i
 		}
 	}
+	recoveredSymbol := ParseBlockSourceSymbol(current)
+	block.SourceSymbols[missing] = recoveredSymbol
 	return []*BlockSourceSymbol{
-		ParseBlockSourceSymbol(current),
+		recoveredSymbol,
 	}, nil
 }
 

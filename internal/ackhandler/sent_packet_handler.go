@@ -141,6 +141,9 @@ func (h *sentPacketHandler) SentPacket(packet *Packet) {
 }
 
 func (h *sentPacketHandler) SentPacketsAsRetransmission(packets []*Packet, retransmissionOf protocol.PacketNumber) {
+	if len(packets) == 0 {
+		return
+	}
 	var p []*Packet
 	for _, packet := range packets {
 		if isAckEliciting := h.sentPacketImpl(packet); isAckEliciting {

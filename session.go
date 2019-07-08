@@ -416,31 +416,36 @@ runLoop:
 		}
 
 		s.maybeResetTimer()
-
-		select {
-		case closeErr = <-s.closeChan:
-			break runLoop
-		case <-s.timer.Chan():
-			s.timer.SetRead()
-			// We do all the interesting stuff after the switch statement, so
-			// nothing to see here.
-		case <-s.sendingScheduled:
-			// We do all the interesting stuff after the switch statement, so
-			// nothing to see here.
-		case p := <-s.availableRecoveredPayloads():
-			err := s.handleRecoveredPayload(p)
+		var rp *fec.RecoveredPacket
+		if s.fecFrameworkReceiver != nil {
+			rp = s.fecFrameworkReceiver.GetRecoveredPacket()
+		}
+		if rp != nil {
+			err := s.handleRecoveredPayload(rp)
 			if err != nil {
 				s.closeLocal(err)
 			}
-		case p := <-s.receivedPackets:
-			// Only reset the timers if this packet was actually processed.
-			// This avoids modifying any state when handling undecryptable packets,
-			// which could be injected by an attacker.
-			if wasProcessed := s.handlePacketImpl(p); !wasProcessed {
-				continue
+		} else {
+			select {
+			case closeErr = <-s.closeChan:
+				break runLoop
+			case <-s.timer.Chan():
+				s.timer.SetRead()
+				// We do all the interesting stuff after the switch statement, so
+				// nothing to see here.
+			case <-s.sendingScheduled:
+				// We do all the interesting stuff after the switch statement, so
+				// nothing to see here.
+			case p := <-s.receivedPackets:
+				// Only reset the timers if this packet was actually processed.
+				// This avoids modifying any state when handling undecryptable packets,
+				// which could be injected by an attacker.
+				if wasProcessed := s.handlePacketImpl(p); !wasProcessed {
+					continue
+				}
+			case <-s.handshakeCompleteChan:
+				s.handleHandshakeComplete()
 			}
-		case <-s.handshakeCompleteChan:
-			s.handleHandshakeComplete()
 		}
 
 		now := time.Now()
@@ -491,7 +496,7 @@ runLoop:
 }
 
 // a small hack to insert FEC inside the run() method without too much changing the code
-func (s *session) availableRecoveredPayloads() <- chan *fec.RecoveredPacket {
+func (s *session) availableRecoveredPayloads() chan *fec.RecoveredPacket {
 	c := make(chan *fec.RecoveredPacket, 1)
 	if s.fecFrameworkReceiver != nil {
 		if payload := s.fecFrameworkReceiver.GetRecoveredPacket() ; payload != nil {
@@ -785,7 +790,6 @@ func (s *session) handleRecoveredPayload(pkt *fec.RecoveredPacket) error {
 	if pkt == nil || len(pkt.Payload) == 0 {
 		return qerr.Error(qerr.ProtocolViolation, "empty recovered pkt")
 	}
-
 
 	// Only used for tracing.
 	// If we're not tracing, this slice will always remain empty.
@@ -1236,7 +1240,7 @@ func (s *session) maybeSendRetransmission() (bool, error) {
 
 	s.logger.Debugf("Dequeueing retransmission for packet 0x%x (%s)", retransmitPacket.PacketNumber, retransmitPacket.EncryptionLevel)
 	packets, err := s.packer.PackRetransmission(retransmitPacket)
-	if err != nil {
+	if len(packets) == 0 || err != nil {
 		return false, err
 	}
 	ackhandlerPackets := make([]*ackhandler.Packet, len(packets))
