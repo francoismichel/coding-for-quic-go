@@ -8,12 +8,20 @@ import (
 
 type SynchronizationByte byte
 
+func (b SynchronizationByte) IsPacketNumberPresent() bool {
+	return b & 0x04 == 0x04
+}
+
 func (b SynchronizationByte) IsStartOfPacket() bool {
 	return b & 0x02 == 0x02
 }
 
 func (b SynchronizationByte) IsEndOfPacket() bool {
 	return b & 0x01 == 0x01
+}
+
+func (b SynchronizationByte) SetPacketNumberPresent() SynchronizationByte {
+	return b | 0x04
 }
 
 func (b SynchronizationByte) SetStartOfPacket() SynchronizationByte {
@@ -49,7 +57,7 @@ func SourceSymbolToBlockSourceSymbol(symbol *fec.SourceSymbol) *BlockSourceSymbo
 	}
 }
 
-func PayloadToSourceSymbols(payload []byte, E protocol.ByteCount) ([]*BlockSourceSymbol, error) {
+func PayloadToSourceSymbols(payload []byte, E protocol.ByteCount, packetNumberPresent bool) ([]*BlockSourceSymbol, error) {
 	packetChunkSize := int(E-1)
 	var retVal []*BlockSourceSymbol
 	if len(payload) % packetChunkSize != 0 {
@@ -62,9 +70,11 @@ func PayloadToSourceSymbols(payload []byte, E protocol.ByteCount) ([]*BlockSourc
 	}
 	for i := 0 ; i < nChunks ; i++ {
 		data := make([]byte, E)
+		if packetNumberPresent {
+			data[0] = byte(SynchronizationByte(data[0]).SetPacketNumberPresent())
+		}
 		//log.Printf("symbol %d, nChunks %d", i, nChunks)
 		if i == 0 {
-
 			data[0] = byte(SynchronizationByte(data[0]).SetStartOfPacket())
 		}
 		if i == nChunks - 1 {

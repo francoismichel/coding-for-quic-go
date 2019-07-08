@@ -60,7 +60,7 @@ func (f *BlockFrameworkSender) ProtectPayload(pn protocol.PacketNumber, payload 
 	if payload == nil || len(payload.Bytes()) == 0 {
 		return retval, fmt.Errorf("asked to protect an empty payload")
 	}
-	symbols, err := PayloadToSourceSymbols(payload.Bytes(), f.e)
+	symbols, err := PayloadToSourceSymbols(payload.Bytes(), f.e, true)
 	if err != nil {
 		return retval, err
 	}
