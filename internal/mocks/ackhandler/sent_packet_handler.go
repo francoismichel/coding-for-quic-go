@@ -92,6 +92,21 @@ func (mr *MockSentPacketHandlerMockRecorder) GetStats() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStats", reflect.TypeOf((*MockSentPacketHandler)(nil).GetStats))
 }
 
+// PacketRecovered mocks base method
+func (m *MockSentPacketHandler) PacketRecovered(arg0 []protocol.PacketNumber) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "PacketRecovered", arg0)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// PacketRecovered indicates an expected call of PacketRecovered
+func (mr *MockSentPacketHandlerMockRecorder) PacketRecovered(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PacketRecovered", reflect.TypeOf((*MockSentPacketHandler)(nil).PacketRecovered), arg0)
+}
+
+
 // OnLossDetectionTimeout mocks base method
 func (m *MockSentPacketHandler) OnLossDetectionTimeout() error {
 	m.ctrl.T.Helper()

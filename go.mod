@@ -4,6 +4,7 @@ go 1.12
 
 require (
 	github.com/cheekybits/genny v1.0.0
+	github.com/golang/mock v1.3.1
 	github.com/golang/protobuf v1.3.1
 	github.com/klauspost/cpuid v1.2.1 // indirect
 	github.com/klauspost/reedsolomon v1.9.2
@@ -11,6 +12,6 @@ require (
 	github.com/marten-seemann/qtls v0.3.2
 	github.com/onsi/ginkgo v1.7.0
 	github.com/onsi/gomega v1.4.3
-	golang.org/x/crypto v0.0.0-20190228161510-8dd112bcdc25
-	golang.org/x/net v0.0.0-20190228165749-92fc7df08ae7
+	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2
+	golang.org/x/net v0.0.0-20190311183353-d8887717615a
 )

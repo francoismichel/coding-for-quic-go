@@ -1273,6 +1273,7 @@ var _ = Describe("Session", func() {
 			streamManager.EXPECT().UpdateLimits(params)
 			packer.EXPECT().HandleTransportParameters(params)
 			Expect(sess.earlySessionReady()).ToNot(BeClosed())
+			packer.EXPECT().SetFECFrameworkReceiver(nil)
 			sess.processTransportParameters(params.Marshal())
 			Expect(sess.earlySessionReady()).To(BeClosed())
 
