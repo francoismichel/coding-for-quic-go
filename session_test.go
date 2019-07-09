@@ -1247,6 +1247,7 @@ var _ = Describe("Session", func() {
 			}
 			streamManager.EXPECT().UpdateLimits(params)
 			packer.EXPECT().HandleTransportParameters(params)
+			packer.EXPECT().SetFECFrameworkReceiver(nil)
 			sess.processTransportParameters(params.Marshal())
 			// make the go routine return
 			streamManager.EXPECT().CloseWithError(gomock.Any())

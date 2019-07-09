@@ -9,6 +9,7 @@ import (
 
 	gomock "github.com/golang/mock/gomock"
 	ackhandler "github.com/lucas-clemente/quic-go/internal/ackhandler"
+	fec "github.com/lucas-clemente/quic-go/internal/fec"
 	handshake "github.com/lucas-clemente/quic-go/internal/handshake"
 	protocol "github.com/lucas-clemente/quic-go/internal/protocol"
 	wire "github.com/lucas-clemente/quic-go/internal/wire"
@@ -119,6 +120,18 @@ func (m *MockPacker) PackRetransmission(arg0 *ackhandler.Packet) ([]*packedPacke
 func (mr *MockPackerMockRecorder) PackRetransmission(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PackRetransmission", reflect.TypeOf((*MockPacker)(nil).PackRetransmission), arg0)
+}
+
+// SetFECFrameworkReceiver mocks base method
+func (m *MockPacker) SetFECFrameworkReceiver(arg0 fec.FrameworkReceiver) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetFECFrameworkReceiver", arg0)
+}
+
+// SetFECFrameworkReceiver indicates an expected call of SetFECFrameworkReceiver
+func (mr *MockPackerMockRecorder) SetFECFrameworkReceiver(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetFECFrameworkReceiver", reflect.TypeOf((*MockPacker)(nil).SetFECFrameworkReceiver), arg0)
 }
 
 // SetToken mocks base method
