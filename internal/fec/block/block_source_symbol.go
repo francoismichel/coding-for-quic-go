@@ -70,11 +70,11 @@ func PayloadToSourceSymbols(payload []byte, E protocol.ByteCount, packetNumberPr
 	}
 	for i := 0 ; i < nChunks ; i++ {
 		data := make([]byte, E)
-		if packetNumberPresent {
-			data[0] = byte(SynchronizationByte(data[0]).SetPacketNumberPresent())
-		}
 		//log.Printf("symbol %d, nChunks %d", i, nChunks)
 		if i == 0 {
+			if packetNumberPresent {
+				data[0] = byte(SynchronizationByte(data[0]).SetPacketNumberPresent())
+			}
 			data[0] = byte(SynchronizationByte(data[0]).SetStartOfPacket())
 		}
 		if i == nChunks - 1 {
