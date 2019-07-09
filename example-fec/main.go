@@ -161,7 +161,7 @@ func setupHandler(www string, trace bool) http.Handler {
 	}
 	return &tracingHandler{handler: mux}
 }
-func client(quiet bool, insecure bool, urls []string) {
+func client(quicConf *quic.Config, quiet bool, insecure bool, urls []string) {
 
 	logger := utils.DefaultLogger
 
@@ -171,6 +171,7 @@ func client(quiet bool, insecure bool, urls []string) {
 			RootCAs:            testdata.GetRootCA(),
 			InsecureSkipVerify: insecure,
 		},
+		QuicConfig: quicConf,
 	}
 	defer roundTripper.Close()
 	hclient := &http.Client{
@@ -286,6 +287,6 @@ func main() {
 	if *s {
 		server(bs, *tcp, quicConf, handler)
 	} else {
-		client(*quiet, *insecure, urls)
+		client(quicConf, *quiet, *insecure, urls)
 	}
 }
