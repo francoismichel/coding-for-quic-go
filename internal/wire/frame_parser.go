@@ -10,8 +10,8 @@ import (
 )
 
 type frameParser struct {
-	ackDelayExponent  uint8
-	repairFrameParser RepairFrameParser
+	ackDelayExponent uint8
+	fecFramesParser  FECFramesParser
 
 	version protocol.VersionNumber
 }
@@ -88,12 +88,17 @@ func (p *frameParser) parseFrame(r *bytes.Reader, typeByte byte, encLevel protoc
 		case 0x21:
 			frame, err = parseFECSrcFPIFrame(r, p.version)
 		case 0x22:
-			if p.repairFrameParser != nil {
-				frame, err = p.repairFrameParser.ParseRepairFrame(r)
+			if p.fecFramesParser != nil {
+				frame, err = p.fecFramesParser.ParseRepairFrame(r)
 				break
 			}
-			// no repairFrameParser plugged, the frame cannot be parsed
+			// no fecFramesParser plugged, the frame cannot be parsed
 			fallthrough
+		case 0x23:
+			if p.fecFramesParser != nil {
+				frame, err = p.fecFramesParser.ParseRecoveredFrame(r)
+				break
+			}
 		default:
 			err = fmt.Errorf("unknown type byte 0x%x", typeByte)
 		}
@@ -124,6 +129,6 @@ func (p *frameParser) SetAckDelayExponent(exp uint8) {
 	p.ackDelayExponent = exp
 }
 
-func (p *frameParser) SetRepairFrameParser(parser RepairFrameParser) {
-	p.repairFrameParser = parser
+func (p *frameParser) SetFECFramesParser(parser FECFramesParser) {
+	p.fecFramesParser = parser
 }

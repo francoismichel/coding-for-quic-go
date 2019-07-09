@@ -16,6 +16,7 @@ type Packet struct {
 	Length          protocol.ByteCount
 	EncryptionLevel protocol.EncryptionLevel
 	SendTime        time.Time
+	Recovered				bool
 
 	includedInBytesInFlight bool
 }
@@ -25,6 +26,7 @@ type SentPacketHandler interface {
 	// SentPacket may modify the packet
 	SentPacket(packet *Packet)
 	ReceivedAck(ackFrame *wire.AckFrame, withPacketNumber protocol.PacketNumber, encLevel protocol.EncryptionLevel, recvTime time.Time) error
+	PacketRecovered(packetNumbers []protocol.PacketNumber) error
 	DropPackets(protocol.EncryptionLevel)
 	ResetForRetry() error
 

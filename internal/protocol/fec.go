@@ -2,6 +2,7 @@ package protocol
 
 const FEC_SRC_FPI_FRAME_TYPE = 0x21
 const REPAIR_FRAME_TYPE = 0x22
+const RECOVERED_FRAME_TYPE = 0x23
 
 type SourceFECPayloadID [4]byte
 

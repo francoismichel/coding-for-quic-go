@@ -268,24 +268,26 @@ func (f *FECBlock) GetSourceSymbols() []*BlockSourceSymbol {
 
 }
 
-type RepairFrameParser interface {
-	wire.RepairFrameParser
+type FECFramesParser interface {
+	wire.FECFramesParser
 	getRepairFrame(b *FECBlock, maxSize protocol.ByteCount) (*wire.RepairFrame, int, error)
 	getRepairFrameMetadata(f *wire.RepairFrame) (nss uint64, nrs uint64, id BlockRepairID, nSymbols uint64, err error)
 	getRepairFrameMetadataSize(nss uint64, nrs uint64, id BlockRepairID, nSymbols uint64) protocol.ByteCount
+	getRecoveredFrame([]protocol.PacketNumber, protocol.ByteCount) (*wire.RecoveredFrame, int, error)
+	getRecoveredFramePacketNumbers(frame *wire.RecoveredFrame) ([]protocol.PacketNumber, error)
 }
 
-var _ RepairFrameParser = &repairFrameParserI{}
+var _ FECFramesParser = &fecFramesParserI{}
 
-type repairFrameParserI struct {
+type fecFramesParserI struct {
 	e protocol.ByteCount
 }
 
-func NewRepairFrameParser(E protocol.ByteCount) RepairFrameParser {
-	return &repairFrameParserI{e: E}
+func NewFECFramesParser(E protocol.ByteCount) FECFramesParser {
+	return &fecFramesParserI{e: E}
 }
 
-func (p *repairFrameParserI) ParseRepairFrame(r *bytes.Reader) (*wire.RepairFrame, error) {
+func (p *fecFramesParserI) ParseRepairFrame(r *bytes.Reader) (*wire.RepairFrame, error) {
 	// type byte
 	_, err := r.ReadByte()
 	if err != nil {
@@ -343,7 +345,49 @@ func (p *repairFrameParserI) ParseRepairFrame(r *bytes.Reader) (*wire.RepairFram
 	return frame, nil
 }
 
-func (p *repairFrameParserI) getRepairFrameMetadata(f *wire.RepairFrame) (nss uint64, nrs uint64, id BlockRepairID, nSymbols uint64, err error) {
+// Ultra simple, non-optimized recovered frame
+func (p *fecFramesParserI) ParseRecoveredFrame(r *bytes.Reader) (*wire.RecoveredFrame, error) {
+	// this function does not process the payload yet, but reads it in order to know its size
+	// type byte
+	_, err := r.ReadByte()
+	if err != nil {
+		return nil, err
+	}
+	payloadStartOffset, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, err
+	}
+	nRecovered, err := utils.ReadVarInt(r)
+	if err != nil {
+		return nil, err
+	}
+	for i := 0 ; i < int(nRecovered) ; i++ {
+		_, err := utils.ReadVarInt(r)
+		if err != nil {
+			return nil, err
+		}
+	}
+	payloadEndOffset, err := r.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, err
+	}
+	payloadLength := payloadEndOffset - payloadStartOffset
+	framePayload := make([]byte, payloadLength)
+
+	_, err = r.Seek(payloadStartOffset, io.SeekStart)
+	if err != nil {
+		return nil, err
+	}
+	_, err = r.Read(framePayload)
+	if err != nil {
+		return nil, err
+	}
+	return &wire.RecoveredFrame{
+		Data: framePayload,
+	}, nil
+}
+
+func (p *fecFramesParserI) getRepairFrameMetadata(f *wire.RepairFrame) (nss uint64, nrs uint64, id BlockRepairID, nSymbols uint64, err error) {
 	r := bytes.NewReader(f.Metadata)
 	// browse all the metadata
 	nss, err = utils.ReadVarInt(r)
@@ -379,12 +423,12 @@ func (p *repairFrameParserI) getRepairFrameMetadata(f *wire.RepairFrame) (nss ui
 	return
 }
 
-func (p *repairFrameParserI) getRepairFrameMetadataSize(nss uint64, nrs uint64, id BlockRepairID, nSymbols uint64) protocol.ByteCount {
+func (p *fecFramesParserI) getRepairFrameMetadataSize(nss uint64, nrs uint64, id BlockRepairID, nSymbols uint64) protocol.ByteCount {
 	return utils.VarIntLen(nss) + utils.VarIntLen(nrs) + 8 + utils.VarIntLen(nSymbols)
 }
 
 
-func (f *repairFrameParserI) getRepairFrame(block *FECBlock, maxSize protocol.ByteCount) (*wire.RepairFrame, int, error) {
+func (f *fecFramesParserI) getRepairFrame(block *FECBlock, maxSize protocol.ByteCount) (*wire.RepairFrame, int, error) {
 	if maxSize == 0 {
 		return nil, 0, nil
 	}
@@ -428,4 +472,43 @@ func (f *repairFrameParserI) getRepairFrame(block *FECBlock, maxSize protocol.By
 		Metadata: payload[:len(payload) - int(nSymbols*f.e)],
 		RepairSymbols: payload[len(payload) - int(nSymbols*f.e):],
 	}, int(nSymbols), nil
+}
+
+func (p *fecFramesParserI) getRecoveredFrame(pns []protocol.PacketNumber, maxLen protocol.ByteCount) (*wire.RecoveredFrame, int, error) {
+	if len(pns) == 0 {
+		return nil, 0, nil
+	}
+	writtenPn := 0
+	maxLen--	// type byte
+	b := bytes.NewBuffer(nil)
+	utils.WriteVarInt(b, uint64(len(pns)))
+	for _, pn := range pns {
+		lenPn := utils.VarIntLen(uint64(pn))
+		if maxLen < lenPn {
+			break
+		}
+		utils.WriteVarInt(b, uint64(pn))
+		maxLen -= lenPn
+		writtenPn++
+	}
+	return &wire.RecoveredFrame{
+		Data: b.Bytes(),
+	}, writtenPn, nil
+}
+
+func (p *fecFramesParserI) getRecoveredFramePacketNumbers(rf *wire.RecoveredFrame) ([]protocol.PacketNumber, error) {
+	b := bytes.NewBuffer(rf.Data)
+	nRecoveredPacketNumbers, err := utils.ReadVarInt(b)
+	if err != nil {
+		return nil, err
+	}
+	var pns []protocol.PacketNumber
+	for i := uint64(0) ; i < nRecoveredPacketNumbers ; i++ {
+		pn, err := utils.ReadVarInt(b)
+		if err != nil {
+			return nil, err
+		}
+		pns = append(pns, protocol.PacketNumber(pn))
+	}
+	return pns, nil
 }

@@ -7,7 +7,6 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/fec"
 	"github.com/lucas-clemente/quic-go/internal/protocol"
 	"github.com/lucas-clemente/quic-go/internal/wire"
-	"log"
 )
 
 // XXX: a packet can never be spread in different FEC Blocks
@@ -15,15 +14,16 @@ import (
 
 type BlockFrameworkReceiver struct {
 	e                        protocol.ByteCount
-	repairFrameParser        RepairFrameParser
+	repairFrameParser        FECFramesParser
 	fecBlocksBuffer          *fecBlocksBuffer
 	recoveredPacketsPayloads *recoveredPacketsBuffer
 	doRecovery               bool								// Debug parameter: if false, the recovered packets won't be used by the session, like if it has not been recovered
 	fecScheme                BlockFECScheme
+	recoveredPacketsToAnnounce []protocol.PacketNumber
 }
 var _ fec.FrameworkReceiver = &BlockFrameworkReceiver{}
 
-func NewBlockFrameworkReceiver(fecScheme BlockFECScheme, repairFrameParser RepairFrameParser, E protocol.ByteCount) (*BlockFrameworkReceiver, error) {
+func NewBlockFrameworkReceiver(fecScheme BlockFECScheme, repairFrameParser FECFramesParser, E protocol.ByteCount) (*BlockFrameworkReceiver, error) {
 	if E >= protocol.MAX_FEC_SYMBOL_SIZE {
 		return nil, fmt.Errorf("framework sender symbol size too big: %d > %d", E, protocol.MAX_FEC_SYMBOL_SIZE)
 	}
@@ -100,6 +100,14 @@ func (f *BlockFrameworkReceiver) HandleRepairFrame(frame *wire.RepairFrame) erro
 func (f *BlockFrameworkReceiver) GetRecoveredPacket() *fec.RecoveredPacket {
 	return f.recoveredPacketsPayloads.getPacket()
 }
+func (f *BlockFrameworkReceiver) GetRecoveredFrame(maxSize protocol.ByteCount) (*wire.RecoveredFrame, error) {
+	frame, nPackets, err := f.repairFrameParser.getRecoveredFrame(f.recoveredPacketsToAnnounce, maxSize)
+	if err != nil {
+		return nil, err
+	}
+	f.recoveredPacketsToAnnounce = f.recoveredPacketsToAnnounce[nPackets:]
+	return frame, nil
+}
 
 func (f *BlockFrameworkReceiver) handleBlockSourceSymbol(symbol *BlockSourceSymbol, id BlockSourceID) error {
 	fecBlockNumber := id.BlockNumber
@@ -156,9 +164,10 @@ func (f *BlockFrameworkReceiver) updateStateForSomeBlock(blockNumber BlockNumber
 			if err != nil {
 				return err
 			}
-			log.Printf("recovered %d source symbols ! (%d packets)", len(recoveredSymbols), len(recoveredPackets))
 			for _, packet := range recoveredPackets {
 				f.recoveredPacketsPayloads.addPacket(packet)
+				// FIXME: there might hypothetically be duplicated packet numbers
+				f.recoveredPacketsToAnnounce = append(f.recoveredPacketsToAnnounce, packet.Number)
 			}
 			delete(f.fecBlocksBuffer.fecBlocks, blockNumber)
 		}
