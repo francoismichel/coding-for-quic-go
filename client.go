@@ -257,7 +257,7 @@ func populateClientConfig(config *Config, createdPacketConn bool) *Config {
 		StatelessResetKey:                     config.StatelessResetKey,
 		QuicTracer:                            config.QuicTracer,
 		FECSchemeID:													 config.FECSchemeID,
-		FECSymbolSize:													 fecSymbolSize,
+		FECSymbolSize:												 fecSymbolSize,
 	}
 }
 
