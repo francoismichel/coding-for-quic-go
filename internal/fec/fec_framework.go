@@ -14,6 +14,7 @@ type FrameworkSender interface {
 	GetNextFPID() protocol.SourceFECPayloadID
 	FlushUnprotectedSymbols() error
 	GetRepairFrame(maxSize protocol.ByteCount) (*wire.RepairFrame, error)
+	HandleRecoveredFrame(frame *wire.RecoveredFrame) ([]protocol.PacketNumber, error)
 }
 
 type FrameworkReceiver interface {
@@ -21,6 +22,7 @@ type FrameworkReceiver interface {
 	ReceivePayload(number protocol.PacketNumber, payload PreProcessedPayload, sourceID protocol.SourceFECPayloadID) error
 	HandleRepairFrame(frame *wire.RepairFrame) error
 	GetRecoveredPacket() *RecoveredPacket
+	GetRecoveredFrame(maxLen protocol.ByteCount) (*wire.RecoveredFrame, error)
 }
 
 type PreProcessedPayload interface {

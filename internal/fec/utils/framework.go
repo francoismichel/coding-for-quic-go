@@ -9,7 +9,7 @@ import (
 	"github.com/lucas-clemente/quic-go/internal/wire"
 )
 
-func CreateFrameworkSenderFromFECSchemeID(id protocol.FECSchemeID, controller fec.RedundancyController, symbolSize protocol.ByteCount) (fec.FrameworkSender, wire.RepairFrameParser, error) {
+func CreateFrameworkSenderFromFECSchemeID(id protocol.FECSchemeID, controller fec.RedundancyController, symbolSize protocol.ByteCount) (fec.FrameworkSender, wire.FECFramesParser, error) {
 	switch {
 	case IsBlockFECScheme(id):
 		fecScheme, err := GetBlockFECScheme(id)
@@ -22,7 +22,7 @@ func CreateFrameworkSenderFromFECSchemeID(id protocol.FECSchemeID, controller fe
 		if blockController, ok := controller.(block.RedundancyController); !ok {
 			return nil, nil, fmt.Errorf("wrong redundancy controller: expected a BlockRedundancyController")
 		} else {
-			rfp := block.NewRepairFrameParser(symbolSize)
+			rfp := block.NewFECFramesParser(symbolSize)
 			sender, err := block.NewBlockFrameworkSender(fecScheme, blockController, rfp, symbolSize)
 			return sender, rfp, err
 		}
@@ -33,14 +33,14 @@ func CreateFrameworkSenderFromFECSchemeID(id protocol.FECSchemeID, controller fe
 	}
 }
 
-func CreateFrameworkReceiverFromFECSchemeID(id protocol.FECSchemeID, symbolSize protocol.ByteCount) (fec.FrameworkReceiver, wire.RepairFrameParser, error) {
+func CreateFrameworkReceiverFromFECSchemeID(id protocol.FECSchemeID, symbolSize protocol.ByteCount) (fec.FrameworkReceiver, wire.FECFramesParser, error) {
 	switch {
 	case IsBlockFECScheme(id):
 		fecScheme, err := GetBlockFECScheme(id)
 		if err != nil {
 			return nil, nil, err
 		}
-		rfp := block.NewRepairFrameParser(symbolSize)
+		rfp := block.NewFECFramesParser(symbolSize)
 		receiver, err := block.NewBlockFrameworkReceiver(fecScheme, rfp, symbolSize)
 		return receiver, rfp, err
 	case id == protocol.FECDisabled:

@@ -20,6 +20,7 @@ type packer interface {
 	MaybePackAckPacket() (*packedPacket, error)
 	PackRetransmission(packet *ackhandler.Packet) ([]*packedPacket, error)
 	PackConnectionClose(*wire.ConnectionCloseFrame) (*packedPacket, error)
+	SetFECFrameworkReceiver(receiver fec.FrameworkReceiver)
 
 	HandleTransportParameters(*handshake.TransportParameters)
 	SetToken([]byte)
@@ -136,6 +137,7 @@ type packetPacker struct {
 	numNonAckElicitingAcks int
 
 	fecFrameworkSender fec.FrameworkSender
+	fecFrameworkReceiver fec.FrameworkReceiver
 }
 
 var _ packer = &packetPacker{}
@@ -153,6 +155,7 @@ func newPacketPacker(
 	perspective protocol.Perspective,
 	version protocol.VersionNumber,
 	fecFrameworkSender fec.FrameworkSender,
+	fecFrameworkReceiver fec.FrameworkReceiver,
 ) *packetPacker {
 	return &packetPacker{
 		cryptoSetup:     cryptoSetup,
@@ -167,7 +170,12 @@ func newPacketPacker(
 		pnManager:       packetNumberManager,
 		maxPacketSize:   getMaxPacketSize(remoteAddr),
 		fecFrameworkSender: fecFrameworkSender,
+		fecFrameworkReceiver: fecFrameworkReceiver,
 	}
+}
+
+func (p *packetPacker) SetFECFrameworkReceiver(receiver fec.FrameworkReceiver) {
+	p.fecFrameworkReceiver = receiver
 }
 
 // PackConnectionClose packs a packet that ONLY contains a ConnectionCloseFrame
@@ -468,6 +476,17 @@ func (p *packetPacker) composeNextPacket(maxFrameSize protocol.ByteCount) (paylo
 		if rf != nil {
 			payload.frames = append(payload.frames, rf)
 			payload.length += rf.Length(p.version)
+		}
+	}
+
+	if p.fecFrameworkReceiver != nil {
+		recoveredFrame, err := p.fecFrameworkReceiver.GetRecoveredFrame(maxFrameSize - payload.length)
+		if err != nil {
+			return payload, err
+		}
+		if recoveredFrame != nil {
+			payload.frames = append(payload.frames, recoveredFrame)
+			payload.length += recoveredFrame.Length(p.version)
 		}
 	}
 

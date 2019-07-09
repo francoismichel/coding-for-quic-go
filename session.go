@@ -169,10 +169,10 @@ type session struct {
 
 	logger utils.Logger
 
-	senderRepairFrameParser wire.RepairFrameParser
-	fecFrameworkSender fec.FrameworkSender
-	receiverRepairFrameParser wire.RepairFrameParser
-	fecFrameworkReceiver fec.FrameworkReceiver
+	senderFECFrameParser   wire.FECFramesParser
+	fecFrameworkSender     fec.FrameworkSender
+	receiverFECFrameParser wire.FECFramesParser
+	fecFrameworkReceiver   fec.FrameworkReceiver
 }
 
 var _ Session = &session{}
@@ -204,7 +204,7 @@ var newSession = func(
 		version:               v,
 	}
 	var err error
-	s.fecFrameworkSender, s.senderRepairFrameParser, err = fec_utils.CreateFrameworkSenderFromFECSchemeID(s.config.FECSchemeID, s.config.FECRedundancyController, protocol.ByteCount(conf.FECSymbolSize))
+	s.fecFrameworkSender, s.senderFECFrameParser, err = fec_utils.CreateFrameworkSenderFromFECSchemeID(s.config.FECSchemeID, s.config.FECRedundancyController, protocol.ByteCount(conf.FECSymbolSize))
 	if err != nil {
 		return nil, err
 	}
@@ -256,6 +256,7 @@ var newSession = func(
 		s.perspective,
 		s.version,
 		s.fecFrameworkSender,
+		s.fecFrameworkReceiver,
 	)
 	s.cryptoStreamManager = newCryptoStreamManager(cs, initialStream, handshakeStream, oneRTTStream)
 
@@ -293,7 +294,7 @@ var newClientSession = func(
 		version:               v,
 	}
 	var err error
-	s.fecFrameworkSender, s.senderRepairFrameParser, err = fec_utils.CreateFrameworkSenderFromFECSchemeID(s.config.FECSchemeID, s.config.FECRedundancyController, protocol.ByteCount(conf.FECSymbolSize))
+	s.fecFrameworkSender, s.senderFECFrameParser, err = fec_utils.CreateFrameworkSenderFromFECSchemeID(s.config.FECSchemeID, s.config.FECRedundancyController, protocol.ByteCount(conf.FECSymbolSize))
 	if err != nil {
 		return nil, err
 	}
@@ -348,6 +349,7 @@ var newClientSession = func(
 		s.perspective,
 		s.version,
 		s.fecFrameworkSender,
+		s.fecFrameworkReceiver,
 	)
 	return s, s.postSetup()
 }
@@ -421,6 +423,7 @@ runLoop:
 			rp = s.fecFrameworkReceiver.GetRecoveredPacket()
 		}
 		if rp != nil {
+			s.logger.Debugf("packet %d has been recovered", rp.Number)
 			err := s.handleRecoveredPayload(rp)
 			if err != nil {
 				s.closeLocal(err)
@@ -872,6 +875,14 @@ func (s *session) handleFrame(f wire.Frame, pn protocol.PacketNumber, encLevel p
 		if s.fecFrameworkReceiver != nil {
 			err = s.fecFrameworkReceiver.HandleRepairFrame(frame)
 		}
+	case *wire.RecoveredFrame:
+		if s.fecFrameworkSender != nil {
+			pns, err := s.fecFrameworkSender.HandleRecoveredFrame(frame)
+			if err == nil {
+				s.logger.Debugf("packets have been recovered: %+v", pns)
+				err = s.sentPacketHandler.PacketRecovered(pns)
+			}
+		}
 	default:
 		err = fmt.Errorf("unexpected frame type: %s", reflect.ValueOf(&frame).Elem().Type().Name())
 	}
@@ -1122,12 +1133,13 @@ func (s *session) processTransportParameters(data []byte) {
 	if params.StatelessResetToken != nil {
 		s.sessionRunner.AddResetToken(*params.StatelessResetToken, s)
 	}
-	s.fecFrameworkReceiver, s.receiverRepairFrameParser, err = fec_utils.CreateFrameworkReceiverFromFECSchemeID(params.FECSchemeID, protocol.ByteCount(params.FECSymbolSize))
+	s.fecFrameworkReceiver, s.receiverFECFrameParser, err = fec_utils.CreateFrameworkReceiverFromFECSchemeID(params.FECSchemeID, protocol.ByteCount(params.FECSymbolSize))
 	if err != nil {
 		s.closeLocal(err)
 		return
 	}
-	s.frameParser.SetRepairFrameParser(s.receiverRepairFrameParser)
+	s.frameParser.SetFECFramesParser(s.receiverFECFrameParser)
+	s.packer.SetFECFrameworkReceiver(s.fecFrameworkReceiver)
 }
 
 func (s *session) processTransportParametersForClient(data []byte) (*handshake.TransportParameters, error) {

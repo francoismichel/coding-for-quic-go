@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/lucas-clemente/quic-go/internal/congestion"
@@ -265,6 +266,23 @@ func (h *sentPacketHandler) ReceivedAck(ackFrame *wire.AckFrame, withPacketNumbe
 	return nil
 }
 
+func (h *sentPacketHandler) PacketRecovered(packetNumbers []protocol.PacketNumber) error {
+	recoveredPackets, err := h.determineNewlyRecoveredPackets(packetNumbers)
+	if err != nil {
+		return err
+	}
+	if len(recoveredPackets) == 0 {
+		return nil
+	}
+
+	for _, p := range recoveredPackets {
+		if err := h.onPacketRecovered(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (h *sentPacketHandler) GetLowestPacketNotConfirmedAcked() protocol.PacketNumber {
 	return h.lowestNotConfirmedAcked
 }
@@ -315,6 +333,48 @@ func (h *sentPacketHandler) determineNewlyAckedPackets(
 		h.logger.Debugf("\tnewly acked packets (%d): %#x", len(pns), pns)
 	}
 	return ackedPackets, err
+}
+
+func (h *sentPacketHandler) determineNewlyRecoveredPackets(
+	pns []protocol.PacketNumber,
+) ([]*Packet, error) {
+	pnSpace := h.getPacketNumberSpace(protocol.Encryption1RTT)
+	sort.Slice(pns, func(i, j int) bool {
+		return pns[i] < pns[j]
+	})
+	var recoveredPackets []*Packet
+	sliceIdx := 0
+	lowestRecovered := pns[0]
+	largestRecovered := pns[len(pns)-1]
+	err := pnSpace.history.Iterate(func(p *Packet) (bool, error) {
+		// Ignore packets below the lowest acked
+		if p.PacketNumber < lowestRecovered {
+			return true, nil
+		}
+		// Break after largest acked is reached
+		if p.PacketNumber > largestRecovered {
+			return false, nil
+		}
+
+		for ;sliceIdx < len(pns) && p.PacketNumber > pns[sliceIdx]; {
+			sliceIdx++
+		}
+		if sliceIdx >= len(pns) {
+			return false, nil
+		}
+		if p.PacketNumber == pns[sliceIdx] {
+			recoveredPackets = append(recoveredPackets, p)
+		}
+		return true, nil
+	})
+	if h.logger.Debug() && len(recoveredPackets) > 0 {
+		pns := make([]protocol.PacketNumber, len(recoveredPackets))
+		for i, p := range recoveredPackets {
+			pns[i] = p.PacketNumber
+		}
+		h.logger.Debugf("\tnewly recovered packets (%d): %#x", len(pns), pns)
+	}
+	return recoveredPackets, err
 }
 
 func (h *sentPacketHandler) hasOutstandingCryptoPackets() bool {
@@ -499,6 +559,24 @@ func (h *sentPacketHandler) onPacketAcked(p *Packet, rcvTime time.Time) error {
 		return err
 	}
 	return pnSpace.history.Remove(p.PacketNumber)
+}
+
+func (h *sentPacketHandler) onPacketRecovered(p *Packet) error {
+	pnSpace := h.getPacketNumberSpace(p.EncryptionLevel)
+	// This happens if a packet is recovered and received/acked at the same time.
+	// As soon as we process the first one, this will remove all the retransmissions,
+	// so we won't find the recovered packet number later.
+	if packet := pnSpace.history.GetPacket(p.PacketNumber); packet == nil {
+		return nil
+	}
+
+	// we don't retransmit the packet anymore as it has been received, but we do not remove it from the history to not
+	// interfere with the loss detection mechanism: maybe the packet has been received out of order and an ACK
+	// will arrive soon
+	if err := h.stopRetransmissionsFor(p, pnSpace); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (h *sentPacketHandler) stopRetransmissionsFor(p *Packet, pnSpace *packetNumberSpace) error {

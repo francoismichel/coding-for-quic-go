@@ -13,7 +13,7 @@ import (
 type BlockFrameworkSender struct {
 	fecScheme                       BlockFECScheme
 	redundancyController            RedundancyController
-	repairFrameParser               RepairFrameParser
+	fecFramesParser                 FECFramesParser
 	currentBlock                    *FECBlock
 	e                               protocol.ByteCount
 	protectedPacketsSinceLastRepair []int
@@ -22,14 +22,14 @@ type BlockFrameworkSender struct {
 	BlocksToSend []*FECBlock
 }
 
-func NewBlockFrameworkSender(fecScheme BlockFECScheme, redundancyController RedundancyController, repairFrameParser RepairFrameParser, E protocol.ByteCount) (*BlockFrameworkSender, error) {
+func NewBlockFrameworkSender(fecScheme BlockFECScheme, redundancyController RedundancyController, repairFrameParser FECFramesParser, E protocol.ByteCount) (*BlockFrameworkSender, error) {
 	if E >= protocol.MAX_FEC_SYMBOL_SIZE {
 		return nil, fmt.Errorf("framework sender symbol size too big: %d > %d", E, protocol.MAX_FEC_SYMBOL_SIZE)
 	}
 	return &BlockFrameworkSender{
 		fecScheme:            fecScheme,
 		redundancyController: redundancyController,
-		repairFrameParser:		repairFrameParser,
+		fecFramesParser:      repairFrameParser,
 		currentBlock:         NewFECBlock(0),
 		e:                    E,
 	}, nil
@@ -127,7 +127,7 @@ func (f *BlockFrameworkSender) GetRepairFrame(maxSize protocol.ByteCount) (*wire
 	}
 
 	block := f.BlocksToSend[0]
-	rf, consumed, err := f.repairFrameParser.getRepairFrame(block, maxSize)
+	rf, consumed, err := f.fecFramesParser.getRepairFrame(block, maxSize)
 	if err != nil {
 		return nil, err
 	}
@@ -137,4 +137,8 @@ func (f *BlockFrameworkSender) GetRepairFrame(maxSize protocol.ByteCount) (*wire
 		f.BlocksToSend = f.BlocksToSend[1:]
 	}
 	return rf, nil
+}
+
+func (f *BlockFrameworkSender) HandleRecoveredFrame(rf *wire.RecoveredFrame) ([]protocol.PacketNumber, error) {
+	return f.fecFramesParser.getRecoveredFramePacketNumbers(rf)
 }
