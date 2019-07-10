@@ -246,6 +246,7 @@ func main() {
 	bs := binds{}
 	flag.Var(&bs, "bind", "bind to")
 	s := flag.Bool("s", false, "if present, act as a server")
+	port := flag.Int("p", 6121, "port to listen to if -s is set")
 	www := flag.String("www", "/var/www", "www data")
 	tcp := flag.Bool("tcp", false, "also listen on TCP")
 	trace := flag.Bool("trace", false, "enable quic-trace")
@@ -266,7 +267,7 @@ func main() {
 	logger.SetLogTimeFormat("")
 
 	if len(bs) == 0 {
-		bs = binds{"localhost:6121"}
+		bs = binds{fmt.Sprintf("0.0.0.0:%d", *port)}
 	}
 
 	handler := setupHandler(*www, *trace)
