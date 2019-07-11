@@ -13,12 +13,12 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
-
-	_ "net/http/pprof"
+	"time"
 
 	"github.com/lucas-clemente/quic-go"
 	"github.com/lucas-clemente/quic-go/http3"
@@ -161,6 +161,10 @@ func setupHandler(www string, trace bool) http.Handler {
 	}
 	return &tracingHandler{handler: mux}
 }
+
+var elapsed time.Duration
+
+
 func client(quicConf *quic.Config, quiet bool, insecure bool, urls []string) {
 
 	logger := utils.DefaultLogger
@@ -194,6 +198,7 @@ func client(quicConf *quic.Config, quiet bool, insecure bool, urls []string) {
 			if err != nil {
 				panic(err)
 			}
+			elapsed = time.Now().Sub(started)
 			if quiet {
 				logger.Infof("Request Body: %d bytes", body.Len())
 			} else {
@@ -204,6 +209,7 @@ func client(quicConf *quic.Config, quiet bool, insecure bool, urls []string) {
 		}(addr)
 	}
 	wg.Wait()
+	log.Printf("%+v ms", elapsed.Seconds()*1000)
 }
 
 
@@ -233,7 +239,25 @@ func server(bs binds, tcp bool, quicConf *quic.Config, handler http.Handler) {
 	wg.Wait()
 }
 
-
+type MyLogger struct {
+	utils.Logger
+}
+var checkpoint bool
+var started time.Time
+func (l *MyLogger) Debugf(format string, args ...interface{}) {
+	if !checkpoint {
+		if strings.Contains(format, "Installed 1-RTT Write") {
+			checkpoint = true
+			started = time.Now()
+		}
+	}
+	l.Logger.Debugf(format, args...)
+}
+func (l *MyLogger) WithPrefix(prefix string) utils.Logger {
+	return &MyLogger{
+		l.Logger.WithPrefix(prefix),
+	}
+}
 
 func main() {
 	// defer profile.Start().Stop()
@@ -257,14 +281,18 @@ func main() {
 	flag.Parse()
 	urls := flag.Args()
 
-	logger := utils.DefaultLogger
+	logger := &MyLogger{utils.DefaultLogger}
 
 	if *verbose {
 		logger.SetLogLevel(utils.LogLevelDebug)
+	} else if *quiet {
+		logger.SetLogLevel(utils.LogLevelError)
 	} else {
 		logger.SetLogLevel(utils.LogLevelInfo)
 	}
 	logger.SetLogTimeFormat("")
+
+	utils.DefaultLogger = logger
 
 	if len(bs) == 0 {
 		bs = binds{fmt.Sprintf("0.0.0.0:%d", *port)}
