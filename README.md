@@ -12,7 +12,7 @@ quic-go is an implementation of the [QUIC](https://en.wikipedia.org/wiki/QUIC) p
 
 ## FEC Extension
 
-This fork propose a *simple* Forward Erasure Correction (FEC) extension as proposed in the current [Coding for QUIC IRTF draft](https://tools.ietf.org/html/draft-swett-nwcrg-coding-for-quic-03).
+This fork proposes a *simple* Forward Erasure Correction (FEC) extension as proposed in the current [Coding for QUIC IRTF draft](https://tools.ietf.org/html/draft-swett-nwcrg-coding-for-quic-03).
 It currently implements the third version of the draft, except the negociation process.
 Two block error correcting codes are currently proposed: XOR and Reed-Solomon. A sliding-window RLC code is on the way.
 This work is a refactor of our previous implementation [presented during the IFIP Networking 2019 conference](https://dial.uclouvain.be/pr/boreal/fr/object/boreal%3A217933). This version is currently simpler than the previous version, but aims at staying as up-to-date as possible with both the IRTF draft version and the upstream quic-go implementation, this is why we want to keep a rather simple code. Of course, contributions are welcome.
