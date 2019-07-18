@@ -11,6 +11,26 @@
 
 quic-go is an implementation of the [QUIC](https://en.wikipedia.org/wiki/QUIC) protocol in Go. It roughly implements the [IETF QUIC draft](https://github.com/quicwg/base-drafts), although we don't fully support any of the draft versions at the moment.
 
+## FEC Extension
+
+This fork propose a *simple* Forward Erasure Correction (FEC) extension as proposed in the current [Coding for QUIC IRTF draft](https://tools.ietf.org/html/draft-swett-nwcrg-coding-for-quic-03).
+It currently implements the third version of the draft, except the negociation process.
+Two block error correcting codes are currently proposed: XOR and Reed-Solomon. A sliding-window RLC code is on the way.
+This work is a refactor of our previous implementation [presented during the IFIP Networking 2019 conference](https://dial.uclouvain.be/pr/boreal/fr/object/boreal%3A217933). This version is currently simpler than the previous version, but aims at staying as up-to-date as possible with both the IRTF draft version and the upstream quic-go implementation, this is why we want to keep a rather simple code. Of course, contributions are welcome.
+
+### FEC-enabled HTTP/3 communication
+You will find an example of an FEC-enabled HTTP/3 server and client in the `example-fec/mail.go` file.
+
+To run a FEC-enabled server that will send Reed-Solomon-encoded REPAIR frames, run :
+
+		go run example-fec/main.go -s -p port_to_listen_to -fec -fecScheme rs
+		
+To run a FEC-enabled client that will send XOR-encoded REPAIR frames (and decode the Reed-Solomon-encoded REPAIR frames sent by the server), run :
+
+		go run example-fec/main.go -fec -fecScheme rs https://server_address:port/resource_path
+
+You can read the code of this example to better understand how to configure a QUIC session using FEC.
+
 ## Version compatibility
 
 Since quic-go is under active development, there's no guarantee that two builds of different commits are interoperable. The QUIC version used in the *master* branch is just a placeholder, and should not be considered stable.
