@@ -13,10 +13,3 @@ type RedundancyController interface {
 	// the argument is an int that represents the number of source symbols sent since the last FEC protection
 	GetNumberOfRepairSymbols(int) uint
 }
-
-
-type constantRedundancyController struct {
-	nRepairSymbols 			uint
-	nSourceSymbols				uint
-	windowStepSize		 	uint
-}
